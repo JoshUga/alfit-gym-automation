@@ -1,0 +1,304 @@
+version: "3.8"
+
+services:
+  # Infrastructure
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: alfit
+      MYSQL_USER: alfit
+      MYSQL_PASSWORD: alfit_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - alfit-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - alfit-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - alfit-network
+
+  # Backend Services
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth_service/Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_auth
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  gym-service:
+    build:
+      context: .
+      dockerfile: services/gym_service/Dockerfile
+    ports:
+      - "8002:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_gym
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  member-service:
+    build:
+      context: .
+      dockerfile: services/member_service/Dockerfile
+    ports:
+      - "8003:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_member
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification_service/Dockerfile
+    ports:
+      - "8004:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_notification
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: services/ai_service/Dockerfile
+    ports:
+      - "8005:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_ai
+      REDIS_HOST: redis
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  evolution-service:
+    build:
+      context: .
+      dockerfile: services/evolution_service/Dockerfile
+    ports:
+      - "8006:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_evolution
+      REDIS_HOST: redis
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  billing-service:
+    build:
+      context: .
+      dockerfile: services/billing_service/Dockerfile
+    ports:
+      - "8007:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_billing
+      REDIS_HOST: redis
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: services/analytics_service/Dockerfile
+    ports:
+      - "8008:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_analytics
+      REDIS_HOST: redis
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  admin-service:
+    build:
+      context: .
+      dockerfile: services/admin_service/Dockerfile
+    ports:
+      - "8009:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_admin
+      REDIS_HOST: redis
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  storage-service:
+    build:
+      context: .
+      dockerfile: services/storage_service/Dockerfile
+    ports:
+      - "8010:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_storage
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  email-service:
+    build:
+      context: .
+      dockerfile: services/email_service/Dockerfile
+    ports:
+      - "8011:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_email
+      RABBITMQ_HOST: rabbitmq
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  message-service:
+    build:
+      context: .
+      dockerfile: services/message_service/Dockerfile
+    ports:
+      - "8012:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_message
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
+  # API Gateway
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - auth-service
+      - gym-service
+      - member-service
+    networks:
+      - alfit-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - nginx
+    networks:
+      - alfit-network
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  alfit-network:
+    driver: bridge
