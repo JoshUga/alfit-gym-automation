@@ -89,6 +89,7 @@ services:
       JWT_SECRET_KEY: your-production-secret-key
       EVOLUTION_API_URL: http://evolution-api:8080
       EVOLUTION_API_GLOBAL_KEY: ${EVOLUTION_API_GLOBAL_KEY:-change-me}
+      EVOLUTION_WEBHOOK_URL: ${EVOLUTION_WEBHOOK_URL:-http://nginx/evolution/webhooks/incoming}
     depends_on:
       mysql:
         condition: service_healthy
@@ -302,9 +303,28 @@ services:
     networks:
       - alfit-network
 
+  evolution-service:
+    build:
+      context: .
+      dockerfile: services/evolution_service/Dockerfile
+    ports:
+      - "8013:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit
+      JWT_SECRET_KEY: your-production-secret-key
+      EVOLUTION_API_URL: http://evolution-api:8080
+      EVOLUTION_API_GLOBAL_KEY: ${EVOLUTION_API_GLOBAL_KEY:-change-me}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - alfit-network
+
   # API Gateway
   nginx:
     image: nginx:alpine
+    restart: unless-stopped
     ports:
       - "8080:80"
     volumes:
@@ -313,6 +333,7 @@ services:
       - auth-service
       - gym-service
       - member-service
+      - evolution-service
     networks:
       - alfit-network
 

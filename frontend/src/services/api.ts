@@ -59,7 +59,7 @@ export const gymService = {
   connectWhatsApp: (id: number, data: { phone_number: string }) =>
     api.post(`/gyms/${id}/whatsapp/connect`, data),
   getWhatsAppStatus: (id: number) => api.get(`/gyms/${id}/whatsapp/status`),
-  sendOnboardingWelcome: (id: number, data: { phone_number: string; owner_name?: string }) =>
+  sendOnboardingWelcome: (id: number, data: { phone_number?: string; owner_name?: string }) =>
     api.post(`/gyms/${id}/whatsapp/send-onboarding-welcome`, data),
 };
 

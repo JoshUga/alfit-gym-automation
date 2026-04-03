@@ -90,7 +90,7 @@ class WhatsAppSendWelcomeResponse(BaseModel):
 
 
 class WhatsAppOnboardingWelcomeRequest(BaseModel):
-    phone_number: str
+    phone_number: Optional[str] = None
     owner_name: Optional[str] = None
 
 
