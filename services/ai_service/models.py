@@ -10,6 +10,7 @@ class AIProvider(str, enum.Enum):
     OPENAI = "openai"
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
+    OLLAMA = "ollama"
 
 
 class AIConfig(Base):

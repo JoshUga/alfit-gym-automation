@@ -1,7 +1,10 @@
 import { MessageSquare } from 'lucide-react';
 import DataTable from '../components/DataTable';
+import { useThemeStore } from '../stores/themeStore';
 
 export default function MessagesPage() {
+  const isDark = useThemeStore((state) => state.isDark);
+
   const columns = [
     { key: 'sender', label: 'Sender' },
     { key: 'recipient', label: 'Recipient' },
@@ -12,11 +15,11 @@ export default function MessagesPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
+      <h1 className={`mb-6 flex items-center gap-2 text-3xl font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
         <MessageSquare size={24} />
         Message History
       </h1>
-      <div className="card">
+      <div>
         <DataTable columns={columns} data={[]} />
       </div>
     </div>

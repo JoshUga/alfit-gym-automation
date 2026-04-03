@@ -19,7 +19,6 @@ SERVICE_NAMES = [
     "member-service",
     "notification-service",
     "ai-service",
-    "evolution-service",
     "billing-service",
     "analytics-service",
     "admin-service",

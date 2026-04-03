@@ -59,3 +59,43 @@ class EvolutionCredentialResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class WhatsAppConnectRequest(BaseModel):
+    instance_name: Optional[str] = None
+    phone_number: str
+
+
+class WhatsAppConnectResponse(BaseModel):
+    instance_name: str
+    status: str
+    qr_code: Optional[str] = None
+    pairing_code: Optional[str] = None
+
+
+class WhatsAppStatusResponse(BaseModel):
+    instance_name: str
+    status: str
+
+
+class WhatsAppSendWelcomeRequest(BaseModel):
+    member_name: str
+    member_phone: str
+    schedule: Optional[str] = None
+
+
+class WhatsAppSendWelcomeResponse(BaseModel):
+    status: str
+    reason: Optional[str] = None
+
+
+class WhatsAppOnboardingWelcomeRequest(BaseModel):
+    phone_number: str
+    owner_name: Optional[str] = None
+
+
+class WhatsAppOnboardingWelcomeResponse(BaseModel):
+    status: str
+    reason: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None

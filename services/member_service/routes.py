@@ -1,6 +1,9 @@
 """Member Service API routes."""
 
-from fastapi import APIRouter, Depends
+import os
+import logging
+import httpx
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from shared.database import get_db
 from shared.auth import get_current_user, UserClaims
@@ -14,7 +17,10 @@ from services.member_service.schemas import (
 )
 from services.member_service import service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+GYM_SERVICE_URL = os.getenv("GYM_SERVICE_URL", "http://gym-service:8000")
 
 
 def get_session():
@@ -22,14 +28,39 @@ def get_session():
     yield from get_db()
 
 
+def _fire_welcome_message(
+    gym_id: int, member_name: str, member_phone: str, schedule: str | None, auth_header: str | None
+) -> None:
+    """Best-effort call to gym_service to send a WhatsApp welcome message."""
+    if not auth_header:
+        return
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            client.post(
+                f"{GYM_SERVICE_URL}/api/v1/gyms/{gym_id}/whatsapp/send-welcome",
+                headers={"Authorization": auth_header, "Content-Type": "application/json"},
+                json={"member_name": member_name, "member_phone": member_phone, "schedule": schedule},
+            )
+    except Exception as exc:
+        logger.warning("Could not send welcome WhatsApp for member in gym %s: %s", gym_id, exc)
+
+
 @router.post("/members", response_model=APIResponse[MemberResponse])
 def add_member(
+    request: Request,
     data: MemberCreate,
     current_user: UserClaims = Depends(get_current_user),
     db: Session = Depends(get_session),
 ):
     """Add a new member."""
     result = service.add_member(db, data)
+    _fire_welcome_message(
+        gym_id=data.gym_id,
+        member_name=result.name,
+        member_phone=result.phone_number,
+        schedule=result.schedule,
+        auth_header=request.headers.get("Authorization"),
+    )
     return APIResponse(data=result, message="Member added successfully")
 
 

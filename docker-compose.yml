@@ -13,6 +13,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -86,9 +87,26 @@ services:
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
       JWT_SECRET_KEY: your-production-secret-key
+      EVOLUTION_API_URL: http://evolution-api:8080
+      EVOLUTION_API_GLOBAL_KEY: ${EVOLUTION_API_GLOBAL_KEY:-change-me}
     depends_on:
       mysql:
         condition: service_healthy
+    networks:
+      - alfit-network
+
+  evolution-api:
+    image: evoapicloud/evolution-api:latest
+    ports:
+      - "8081:8080"
+    environment:
+      SERVER_URL: ${EVOLUTION_SERVER_URL:-http://localhost:8081}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_GLOBAL_KEY:-change-me}
+      DATABASE_PROVIDER: mysql
+      DATABASE_CONNECTION_URI: mysql://alfit:alfit_password@mysql:3306/alfit
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
     networks:
       - alfit-network
 
@@ -104,6 +122,7 @@ services:
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
       JWT_SECRET_KEY: your-production-secret-key
+      GYM_SERVICE_URL: http://gym-service:8000
     depends_on:
       mysql:
         condition: service_healthy
@@ -141,26 +160,41 @@ services:
       MYSQL_DATABASE: alfit_ai
       REDIS_HOST: redis
       JWT_SECRET_KEY: your-production-secret-key
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      AI_MODEL: ${AI_MODEL:-SmolLM-135M}
+      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-smollm:135m}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      AI_BASE_PROMPT: ${AI_BASE_PROMPT:-You are a helpful gym assistant. Keep responses concise and practical.}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     depends_on:
       mysql:
         condition: service_healthy
+      ollama:
+        condition: service_started
     networks:
       - alfit-network
 
-  evolution-service:
-    build:
-      context: .
-      dockerfile: services/evolution_service/Dockerfile
+  ollama:
+    image: ollama/ollama:latest
     ports:
-      - "8006:8000"
-    environment:
-      MYSQL_HOST: mysql
-      MYSQL_DATABASE: alfit_evolution
-      REDIS_HOST: redis
-      JWT_SECRET_KEY: your-production-secret-key
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - alfit-network
+
+  ollama-init:
+    image: ollama/ollama:latest
     depends_on:
-      mysql:
-        condition: service_healthy
+      - ollama
+    environment:
+      OLLAMA_HOST: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      AI_MODEL: ${AI_MODEL:-SmolLM-135M}
+      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-smollm:135m}
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["sleep 5 && (ollama pull ${AI_MODEL:-SmolLM-135M} || ollama pull ${AI_FALLBACK_MODEL:-smollm:135m} || ollama pull tinyllama)"]
     networks:
       - alfit-network
 
@@ -288,7 +322,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:80"
+      - "3300:80"
     depends_on:
       - nginx
     networks:
@@ -298,6 +332,9 @@ volumes:
   mysql_data:
   redis_data:
   rabbitmq_data:
+  evolution_instances:
+  evolution_store:
+  ollama_data:
 
 networks:
   alfit-network:

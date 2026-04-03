@@ -10,6 +10,7 @@ from shared.auth import create_access_token
 from services.gym_service.main import app
 from services.gym_service.routes import get_session
 from services.gym_service.models import Gym
+from services.gym_service import service as gym_service
 
 
 @pytest.fixture
@@ -65,6 +66,15 @@ class TestGymRegistration:
 
 
 class TestGymCRUD:
+    def test_get_my_gym(self, client, db, auth_headers):
+        gym = Gym(name="Owner Gym", address="456 Oak Ave", phone="+1111111111", email="owner@gym.com", owner_id=1)
+        db.add(gym)
+        db.commit()
+
+        response = client.get("/api/v1/gyms/me", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["data"]["name"] == "Owner Gym"
+
     def test_get_gym(self, client, db, auth_headers):
         gym = Gym(name="Get Gym", address="456 Oak Ave", phone="+1111111111", email="get@gym.com", owner_id=1)
         db.add(gym)
@@ -167,3 +177,44 @@ class TestEvolutionCredentials:
         response = client.get(f"/api/v1/gyms/{gym.id}/evolution-credentials", headers=auth_headers)
         assert response.status_code == 200
         assert isinstance(response.json()["data"], list)
+
+
+class TestWhatsAppOnboarding:
+    def test_connect_whatsapp_requires_phone_number(self, client, db, auth_headers):
+        gym = Gym(name="WA Gym", address="123 St", phone="+1111111111", email="wa@gym.com", owner_id=1)
+        db.add(gym)
+        db.commit()
+        db.refresh(gym)
+
+        response = client.post(
+            f"/api/v1/gyms/{gym.id}/whatsapp/connect",
+            json={},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_send_onboarding_welcome_endpoint(self, client, db, auth_headers, monkeypatch):
+        gym = Gym(name="Onboard Gym", address="123 St", phone="+1111111111", email="onboard@gym.com", owner_id=1)
+        db.add(gym)
+        db.commit()
+        db.refresh(gym)
+
+        def fake_send_onboarding_self_message(db, gym_id, phone_number, owner_name=None):
+            return {
+                "status": "sent",
+                "provider": "ollama",
+                "model": "SmolLM-135M",
+            }
+
+        monkeypatch.setattr(gym_service, "send_onboarding_self_message", fake_send_onboarding_self_message)
+
+        response = client.post(
+            f"/api/v1/gyms/{gym.id}/whatsapp/send-onboarding-welcome",
+            json={"phone_number": "+5511999999999", "owner_name": "Josh"},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["status"] == "sent"
+        assert data["provider"] == "ollama"

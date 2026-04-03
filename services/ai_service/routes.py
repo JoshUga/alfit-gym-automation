@@ -6,9 +6,7 @@ from shared.database import get_db
 from shared.auth import get_current_user, UserClaims
 from shared.models import APIResponse
 from services.ai_service.schemas import (
-    AIConfigCreate,
-    AIConfigUpdate,
-    AIConfigResponse,
+    AIRuntimeConfigResponse,
     GenerateResponseRequest,
     GenerateResponseResult,
 )
@@ -22,29 +20,29 @@ def get_session():
     yield from get_db()
 
 
-@router.post("/ai/configs", response_model=APIResponse[AIConfigResponse])
+@router.post("/ai/configs", response_model=APIResponse)
 def create_ai_config(
-    data: AIConfigCreate,
+    data: dict,
     current_user: UserClaims = Depends(get_current_user),
     db: Session = Depends(get_session),
 ):
     """Create an AI configuration."""
-    result = service.create_ai_config(db, data)
-    return APIResponse(data=result, message="AI config created successfully")
+    service.create_ai_config(db, data)
+    return APIResponse(message="AI config created successfully")
 
 
-@router.get("/ai/configs/{config_id}", response_model=APIResponse[AIConfigResponse])
+@router.get("/ai/configs/{config_id}", response_model=APIResponse)
 def get_ai_config(
     config_id: int,
     current_user: UserClaims = Depends(get_current_user),
     db: Session = Depends(get_session),
 ):
     """Get an AI configuration."""
-    result = service.get_ai_config(db, config_id)
-    return APIResponse(data=result)
+    service.get_ai_config(db, config_id)
+    return APIResponse()
 
 
-@router.get("/gyms/{gym_id}/ai/configs", response_model=APIResponse[list[AIConfigResponse]])
+@router.get("/gyms/{gym_id}/ai/configs", response_model=APIResponse[list])
 def list_ai_configs(
     gym_id: int,
     current_user: UserClaims = Depends(get_current_user),
@@ -55,16 +53,25 @@ def list_ai_configs(
     return APIResponse(data=result)
 
 
-@router.put("/ai/configs/{config_id}", response_model=APIResponse[AIConfigResponse])
+@router.put("/ai/configs/{config_id}", response_model=APIResponse)
 def update_ai_config(
     config_id: int,
-    data: AIConfigUpdate,
+    data: dict,
     current_user: UserClaims = Depends(get_current_user),
     db: Session = Depends(get_session),
 ):
     """Update an AI configuration."""
-    result = service.update_ai_config(db, config_id, data)
-    return APIResponse(data=result, message="AI config updated successfully")
+    service.update_ai_config(db, config_id, data)
+    return APIResponse(message="AI config updated successfully")
+
+
+@router.get("/ai/runtime-config", response_model=APIResponse[AIRuntimeConfigResponse])
+def get_runtime_config(
+    current_user: UserClaims = Depends(get_current_user),
+):
+    """Get effective AI configuration loaded from environment variables."""
+    result = service.get_runtime_config()
+    return APIResponse(data=result)
 
 
 @router.post("/ai/generate-response", response_model=APIResponse[GenerateResponseResult])

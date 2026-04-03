@@ -5,13 +5,21 @@ interface ThemeState {
   toggle: () => void;
 }
 
+function resolveInitialTheme() {
+  const savedTheme = localStorage.getItem('theme');
+
+  if (savedTheme === 'dark') {
+    return true;
+  }
+
+  if (savedTheme === 'light') {
+    return false;
+  }
+
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
 export const useThemeStore = create<ThemeState>((set) => ({
-  isDark: localStorage.getItem('theme') === 'dark',
-  toggle: () =>
-    set((state) => {
-      const newDark = !state.isDark;
-      localStorage.setItem('theme', newDark ? 'dark' : 'light');
-      document.documentElement.classList.toggle('dark', newDark);
-      return { isDark: newDark };
-    }),
+  isDark: resolveInitialTheme(),
+  toggle: () => set((state) => ({ isDark: !state.isDark })),
 }));

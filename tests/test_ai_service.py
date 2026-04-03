@@ -1,5 +1,6 @@
 """Tests for AI Auto-Responder Service."""
 
+import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -41,7 +42,7 @@ def auth_headers():
 
 
 class TestAIConfig:
-    def test_create_config(self, client, auth_headers):
+    def test_create_config_disabled(self, client, auth_headers):
         response = client.post("/api/v1/ai/configs", json={
             "gym_id": 1,
             "provider": "openai",
@@ -49,21 +50,19 @@ class TestAIConfig:
             "model_name": "gpt-4",
             "base_prompt": "You are a helpful gym assistant.",
         }, headers=auth_headers)
-        assert response.status_code == 200
-        assert response.json()["data"]["provider"] == "openai"
+        assert response.status_code == 422
 
-    def test_get_config(self, client, db, auth_headers):
-        config = AIConfig(
-            gym_id=1, provider=AIProvider.OPENAI,
-            api_key_encrypted="encrypted", model_name="gpt-3.5-turbo",
-            base_prompt="Hello", is_active=True,
-        )
-        db.add(config)
-        db.commit()
-        db.refresh(config)
+    def test_runtime_config(self, client, auth_headers, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "openrouter")
+        monkeypatch.setenv("AI_MODEL", "openai/gpt-4o-mini")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "dummy-key")
+        monkeypatch.setenv("AI_BASE_PROMPT", "You are the assistant.")
 
-        response = client.get(f"/api/v1/ai/configs/{config.id}", headers=auth_headers)
+        response = client.get("/api/v1/ai/runtime-config", headers=auth_headers)
         assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["provider"] == "openrouter"
+        assert data["configured"] is True
 
     def test_list_configs(self, client, db, auth_headers):
         db.add(AIConfig(gym_id=1, provider=AIProvider.OPENAI, api_key_encrypted="enc", model_name="gpt-4", base_prompt="Hi"))
@@ -71,15 +70,13 @@ class TestAIConfig:
 
         response = client.get("/api/v1/gyms/1/ai/configs", headers=auth_headers)
         assert response.status_code == 200
+        assert response.json()["data"] == []
 
-    def test_generate_response(self, client, db, auth_headers):
-        config = AIConfig(
-            gym_id=1, provider=AIProvider.OPENAI,
-            api_key_encrypted="test-key", model_name="gpt-3.5-turbo",
-            base_prompt="You are a gym assistant.", is_active=True,
-        )
-        db.add(config)
-        db.commit()
+    def test_generate_response(self, client, auth_headers, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "openai")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("AI_MODEL", "gpt-4o-mini")
+        monkeypatch.setenv("AI_BASE_PROMPT", "You are a gym assistant.")
 
         response = client.post("/api/v1/ai/generate-response", json={
             "gym_id": 1,
