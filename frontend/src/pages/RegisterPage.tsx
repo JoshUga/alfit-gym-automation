@@ -1,13 +1,26 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, User, ArrowRight, ChevronLeft, Sparkles } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, ChevronLeft, Sparkles, Loader2, CheckCircle2 } from 'lucide-react';
 import { authService, gymService } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 
 const REGISTRATION_STEPS = ['Owner account', 'Gym profile', 'WhatsApp number', 'Scan QR'];
 
 function isConnectedStatus(status: string) {
-  return ['open', 'connected', 'online'].includes(status);
+  return ['open', 'opened', 'connected', 'online'].includes(status);
+}
+
+function normalizePairingCode(value: string) {
+  const code = value.trim();
+  if (!code) {
+    return '';
+  }
+
+  if (code.length > 12) {
+    return '';
+  }
+
+  return /^[a-z0-9]+$/i.test(code) ? code : '';
 }
 
 export default function RegisterPage() {
@@ -30,7 +43,6 @@ export default function RegisterPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState('');
   const [setupDone, setSetupDone] = useState(false);
-  const [onboardingMessageSent, setOnboardingMessageSent] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -51,29 +63,22 @@ export default function RegisterPage() {
 
       try {
         const statusRes = await gymService.getWhatsAppStatus(createdGymId);
-        const status = String(statusRes.data.data.status || '').toLowerCase();
+        const statusData = statusRes.data.data || {};
+        const status = String(statusData.status || '').trim().toLowerCase();
 
         if (cancelled) {
           return;
         }
 
         setConnectionStatus(status || 'pending_connection');
-        if (isConnectedStatus(status)) {
-          if (!onboardingMessageSent && whatsAppPhone) {
-            try {
-              await gymService.sendOnboardingWelcome(createdGymId, {
-                phone_number: whatsAppPhone,
-                owner_name: fullName || undefined,
-              });
-            } catch {
-              // Do not block redirect if welcome send fails.
-            } finally {
-              if (!cancelled) {
-                setOnboardingMessageSent(true);
-              }
-            }
-          }
+        const latestQr = String(statusData.qr_code || '').trim();
+        const latestPairingCode = normalizePairingCode(String(statusData.pairing_code || ''));
+        if (latestQr) {
+          setQrCode(latestQr);
+        }
+        setPairingCode(latestPairingCode);
 
+        if (isConnectedStatus(status)) {
           pollingComplete = true;
           if (intervalId !== null) {
             window.clearInterval(intervalId);
@@ -101,7 +106,7 @@ export default function RegisterPage() {
         window.clearTimeout(redirectTimeout);
       }
     };
-  }, [createdGymId, navigate, setupDone, onboardingMessageSent, whatsAppPhone, fullName]);
+  }, [createdGymId, navigate, setupDone]);
 
   const validateStep = (step: number) => {
     if (step === 0) {
@@ -152,7 +157,6 @@ export default function RegisterPage() {
     }
 
     setSetupDone(false);
-    setOnboardingMessageSent(false);
     setCreatedGymId(null);
     setQrCode('');
     setPairingCode('');
@@ -176,6 +180,7 @@ export default function RegisterPage() {
       const gymId = gymRes.data.data.id as number;
       setCreatedGymId(gymId);
       localStorage.setItem('active_gym_id', String(gymId));
+      localStorage.setItem(`onboarding_whatsapp_phone_${gymId}`, whatsAppPhone.trim());
 
       const connectRes = await gymService.connectWhatsApp(gymId, {
         phone_number: whatsAppPhone,
@@ -183,7 +188,7 @@ export default function RegisterPage() {
 
       const connectData = connectRes.data.data;
       setQrCode(connectData.qr_code || '');
-      setPairingCode(connectData.pairing_code || '');
+      setPairingCode(normalizePairingCode(String(connectData.pairing_code || '')));
       setConnectionStatus(String(connectData.status || 'pending_connection').toLowerCase());
       setSetupDone(true);
       setCurrentStep(3);
@@ -400,6 +405,23 @@ export default function RegisterPage() {
                 <p className="mt-2 text-sm text-slate-300">
                   Status: <span className="font-semibold capitalize">{connectionStatus || 'pending_connection'}</span>
                 </p>
+                <div className={`mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
+                  isConnectedStatus(connectionStatus)
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : 'bg-amber-500/20 text-amber-200'
+                }`}>
+                  {isConnectedStatus(connectionStatus) ? (
+                    <>
+                      <CheckCircle2 size={14} />
+                      Connected. Opening dashboard...
+                    </>
+                  ) : (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Waiting for WhatsApp to become Open...
+                    </>
+                  )}
+                </div>
                 {pairingCode && (
                   <p className="mt-2 text-sm text-slate-300">
                     Pairing code: <span className="font-semibold text-cyan-300">{pairingCode}</span>
@@ -453,7 +475,7 @@ export default function RegisterPage() {
                   disabled
                   className="ml-auto inline-flex items-center gap-2 rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-400"
                 >
-                  Waiting for connection...
+                  {isConnectedStatus(connectionStatus) ? 'Connected. Redirecting...' : 'Waiting for connection...'}
                 </button>
               )}
             </div>

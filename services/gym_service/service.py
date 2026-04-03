@@ -22,11 +22,33 @@ from services.gym_service.schemas import (
 
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "http://evolution-api:8080").rstrip("/")
 EVOLUTION_API_GLOBAL_KEY = os.getenv("EVOLUTION_API_GLOBAL_KEY", "")
+EVOLUTION_WEBHOOK_URL = os.getenv(
+    "EVOLUTION_WEBHOOK_URL", "http://nginx/evolution/webhooks/incoming"
+).rstrip("/")
 AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 AI_MODEL = os.getenv("AI_MODEL", "SmolLM-135M").strip()
 AI_FALLBACK_MODEL = os.getenv("AI_FALLBACK_MODEL", "smollm:135m").strip()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
 logger = logging.getLogger(__name__)
+
+
+def _normalize_pairing_code(value: str | None) -> str | None:
+    """Return a short human-entered pairing code, or None for non-pairing payloads."""
+    if not value:
+        return None
+
+    code = str(value).strip()
+    if not code:
+        return None
+
+    # Real pairing codes are short; large/base64 blobs are not user-facing pairing codes.
+    if len(code) > 12:
+        return None
+
+    if not code.isalnum():
+        return None
+
+    return code
 
 
 def register_gym(db: Session, gym_data: GymCreate, owner_id: int) -> GymResponse:
@@ -206,13 +228,72 @@ def _extract_qr_and_pairing(payload: dict) -> tuple[str | None, str | None]:
             or payload.get("qr")
             or (payload.get("qrcode") or {}).get("base64")
         )
-        pairing_code = (
+        pairing_candidate = (
             payload.get("pairingCode")
             or payload.get("pairing_code")
+            or payload.get("pairCode")
+            or payload.get("pair_code")
             or (payload.get("qrcode") or {}).get("pairingCode")
+            or (payload.get("qrcode") or {}).get("pairing_code")
         )
+        pairing_code = _normalize_pairing_code(pairing_candidate)
 
     return qr_code, pairing_code
+
+
+def _register_incoming_webhook(instance_name: str, api_key: str) -> bool:
+    """Register a webhook on the Evolution API instance so incoming messages trigger auto-replies.
+
+    Returns True when the registration succeeds, False otherwise.
+    """
+    if not EVOLUTION_WEBHOOK_URL:
+        logger.warning(
+            "EVOLUTION_WEBHOOK_URL is not set; skipping webhook registration for %s",
+            instance_name,
+        )
+        return False
+
+    # Evolution API v2 expects a flat payload without a nested "webhook" key.
+    # Event names must use the ALL_CAPS format understood by v2 (MESSAGES_UPSERT).
+    payload = {
+        "enabled": True,
+        "url": EVOLUTION_WEBHOOK_URL,
+        "webhookByEvents": False,
+        "webhookBase64": False,
+        "events": ["MESSAGES_UPSERT"],
+    }
+
+    endpoint = f"{EVOLUTION_API_URL}/webhook/set/{instance_name}"
+
+    try:
+        with httpx.Client(timeout=12.0) as client:
+            resp = client.post(
+                endpoint,
+                headers={"apikey": api_key, "Content-Type": "application/json"},
+                json=payload,
+            )
+        if resp.status_code < 400:
+            logger.info(
+                "Webhook registered for instance %s → %s (HTTP %s)",
+                instance_name,
+                EVOLUTION_WEBHOOK_URL,
+                resp.status_code,
+            )
+            return True
+        logger.warning(
+            "Webhook registration failed for instance %s: HTTP %s – %s",
+            instance_name,
+            resp.status_code,
+            resp.text[:300],
+        )
+    except Exception as exc:
+        logger.warning(
+            "Webhook registration error for instance %s: %s",
+            instance_name,
+            exc,
+        )
+
+    return False
 
 
 def connect_whatsapp_instance(
@@ -271,6 +352,34 @@ def connect_whatsapp_instance(
 
         connect_data = connect_resp.json() if connect_resp.content else {}
         qr_code, pairing_code = _extract_qr_and_pairing(connect_data)
+
+        existing_phone = (
+            db.query(GymPhoneNumber)
+            .filter(
+                GymPhoneNumber.gym_id == gym_id,
+                GymPhoneNumber.phone_number == data.phone_number,
+            )
+            .first()
+        )
+        if not existing_phone:
+            db.add(
+                GymPhoneNumber(
+                    gym_id=gym_id,
+                    phone_number=data.phone_number,
+                    label="owner_whatsapp",
+                    evolution_instance_id=instance_name,
+                )
+            )
+            db.commit()
+
+        webhook_ok = _register_incoming_webhook(instance_name, api_key)
+        if not webhook_ok:
+            logger.warning(
+                "Webhook setup incomplete for gym %s instance %s; "
+                "auto-replies will not work until webhook is registered.",
+                gym_id,
+                instance_name,
+            )
 
         return WhatsAppConnectResponse(
             instance_name=instance_name,
@@ -419,7 +528,7 @@ def _generate_ai_onboarding_copy(gym_name: str, owner_name: str | None) -> dict:
 
 
 def send_onboarding_self_message(
-    db: Session, gym_id: int, phone_number: str, owner_name: str | None = None
+    db: Session, gym_id: int, phone_number: str | None = None, owner_name: str | None = None
 ) -> dict:
     """Send a one-time style onboarding welcome to the owner's own WhatsApp number."""
     gym = db.query(Gym).filter(Gym.id == gym_id).first()
@@ -443,8 +552,22 @@ def send_onboarding_self_message(
     if not api_key:
         return {"status": "skipped", "reason": "no_api_key"}
 
+    target_phone = (phone_number or "").strip() or (gym.phone or "").strip()
+    if not target_phone:
+        latest_phone = (
+            db.query(GymPhoneNumber)
+            .filter(GymPhoneNumber.gym_id == gym_id, GymPhoneNumber.is_active.is_(True))
+            .order_by(GymPhoneNumber.id.desc())
+            .first()
+        )
+        if latest_phone:
+            target_phone = latest_phone.phone_number
+
+    if not target_phone:
+        return {"status": "skipped", "reason": "no_target_phone"}
+
     ai_copy = _generate_ai_onboarding_copy(gym.name, owner_name)
-    payload = {"number": phone_number, "text": ai_copy["text"]}
+    payload = {"number": target_phone, "text": ai_copy["text"]}
 
     try:
         with httpx.Client(timeout=20.0) as client:
