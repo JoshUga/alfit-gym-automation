@@ -57,14 +57,19 @@ export default function DashboardPage() {
         setWelcomeState('sending');
         const phone = localStorage.getItem(`onboarding_whatsapp_phone_${gymId}`) || undefined;
 
-        await gymService.sendOnboardingWelcome(gymId, {
+        const welcomeRes = await gymService.sendOnboardingWelcome(gymId, {
           phone_number: phone,
           owner_name: user?.full_name || undefined,
         });
 
         if (!cancelled) {
-          localStorage.setItem(welcomeKey, '1');
-          setWelcomeState('sent');
+          const resultStatus = welcomeRes.data?.data?.status;
+          if (resultStatus === 'sent') {
+            localStorage.setItem(welcomeKey, '1');
+            setWelcomeState('sent');
+          } else {
+            setWelcomeState('error');
+          }
         }
       } catch {
         if (!cancelled) {

@@ -241,37 +241,59 @@ def _extract_qr_and_pairing(payload: dict) -> tuple[str | None, str | None]:
     return qr_code, pairing_code
 
 
-def _register_incoming_webhook(instance_name: str, api_key: str) -> None:
-    """Best-effort webhook registration so incoming messages can trigger auto-replies."""
-    if not EVOLUTION_WEBHOOK_URL:
-        return
+def _register_incoming_webhook(instance_name: str, api_key: str) -> bool:
+    """Register a webhook on the Evolution API instance so incoming messages trigger auto-replies.
 
+    Returns True when the registration succeeds, False otherwise.
+    """
+    if not EVOLUTION_WEBHOOK_URL:
+        logger.warning(
+            "EVOLUTION_WEBHOOK_URL is not set; skipping webhook registration for %s",
+            instance_name,
+        )
+        return False
+
+    # Evolution API v2 expects a flat payload without a nested "webhook" key.
+    # Event names must use the ALL_CAPS format understood by v2 (MESSAGES_UPSERT).
     payload = {
         "enabled": True,
         "url": EVOLUTION_WEBHOOK_URL,
-        "webhook": EVOLUTION_WEBHOOK_URL,
-        "events": ["messages.upsert", "MESSAGES_UPSERT"],
+        "webhookByEvents": False,
+        "webhookBase64": False,
+        "events": ["MESSAGES_UPSERT"],
     }
 
-    endpoints = [
-        f"{EVOLUTION_API_URL}/webhook/set/{instance_name}",
-        f"{EVOLUTION_API_URL}/webhook/set/{instance_name}?enabled=true",
-    ]
+    endpoint = f"{EVOLUTION_API_URL}/webhook/set/{instance_name}"
 
-    with httpx.Client(timeout=12.0) as client:
-        for endpoint in endpoints:
-            try:
-                resp = client.post(
-                    endpoint,
-                    headers={"apikey": api_key, "Content-Type": "application/json"},
-                    json=payload,
-                )
-                if resp.status_code < 400:
-                    return
-            except Exception:
-                continue
+    try:
+        with httpx.Client(timeout=12.0) as client:
+            resp = client.post(
+                endpoint,
+                headers={"apikey": api_key, "Content-Type": "application/json"},
+                json=payload,
+            )
+        if resp.status_code < 400:
+            logger.info(
+                "Webhook registered for instance %s → %s (HTTP %s)",
+                instance_name,
+                EVOLUTION_WEBHOOK_URL,
+                resp.status_code,
+            )
+            return True
+        logger.warning(
+            "Webhook registration failed for instance %s: HTTP %s – %s",
+            instance_name,
+            resp.status_code,
+            resp.text[:300],
+        )
+    except Exception as exc:
+        logger.warning(
+            "Webhook registration error for instance %s: %s",
+            instance_name,
+            exc,
+        )
 
-    logger.warning("Failed to register Evolution webhook for instance %s", instance_name)
+    return False
 
 
 def connect_whatsapp_instance(
@@ -350,7 +372,14 @@ def connect_whatsapp_instance(
             )
             db.commit()
 
-        _register_incoming_webhook(instance_name, api_key)
+        webhook_ok = _register_incoming_webhook(instance_name, api_key)
+        if not webhook_ok:
+            logger.warning(
+                "Webhook setup incomplete for gym %s instance %s; "
+                "auto-replies will not work until webhook is registered.",
+                gym_id,
+                instance_name,
+            )
 
         return WhatsAppConnectResponse(
             instance_name=instance_name,
