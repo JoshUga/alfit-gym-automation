@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 from shared.health import create_health_router
 from shared.exceptions import AlfitException, alfit_exception_handler
 from shared.database import Base, get_engine
@@ -26,4 +27,12 @@ app.include_router(gym_router, prefix="/api/v1", tags=["Gyms"])
 @app.on_event("startup")
 def create_tables() -> None:
     """Create gym service tables if they do not exist."""
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+
+    # Backward-compatible migration for existing deployments.
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        columns = {col["name"] for col in inspector.get_columns("gyms")}
+        if "onboarding_welcome_sent_at" not in columns:
+            conn.execute(text("ALTER TABLE gyms ADD COLUMN onboarding_welcome_sent_at DATETIME NULL"))

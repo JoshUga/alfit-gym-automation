@@ -3,7 +3,9 @@
 import logging
 import os
 import httpx
+import re
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from shared.exceptions import NotFoundException, ValidationException
 from services.gym_service.models import Gym, GymPhoneNumber, EvolutionCredential
 from services.gym_service.schemas import (
@@ -23,9 +25,13 @@ from services.gym_service.schemas import (
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "http://evolution-api:8080").rstrip("/")
 EVOLUTION_API_GLOBAL_KEY = os.getenv("EVOLUTION_API_GLOBAL_KEY", "")
 AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
-AI_MODEL = os.getenv("AI_MODEL", "SmolLM-135M").strip()
-AI_FALLBACK_MODEL = os.getenv("AI_FALLBACK_MODEL", "smollm:135m").strip()
+AI_MODEL = os.getenv("AI_MODEL", "qwen2.5:0.5b").strip()
+AI_FALLBACK_MODEL = os.getenv("AI_FALLBACK_MODEL", "tinyllama").strip()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+EVOLUTION_UPSERT_WEBHOOK_URL = os.getenv(
+    "EVOLUTION_UPSERT_WEBHOOK_URL",
+    "http://message-service:8000/api/v1/messages/evolution-upsert",
+).rstrip("/")
 logger = logging.getLogger(__name__)
 
 
@@ -215,6 +221,88 @@ def _extract_qr_and_pairing(payload: dict) -> tuple[str | None, str | None]:
     return qr_code, pairing_code
 
 
+def _configure_evolution_upsert_webhook(
+    client: httpx.Client,
+    api_key: str,
+    instance_name: str,
+) -> dict:
+    """Best-effort webhook setup so Evolution forwards upsert events."""
+    if not EVOLUTION_UPSERT_WEBHOOK_URL:
+        return {"configured": False, "reason": "missing_webhook_url"}
+
+    headers = {"apikey": api_key, "Content-Type": "application/json"}
+
+    payload_variants = [
+        {
+            "webhook": {
+                "enabled": True,
+                "url": EVOLUTION_UPSERT_WEBHOOK_URL,
+                "webhookByEvents": True,
+                "events": ["MESSAGES_UPSERT"],
+            }
+        },
+        {
+            "webhook": {
+                "enabled": True,
+                "url": EVOLUTION_UPSERT_WEBHOOK_URL,
+            },
+            "events": {
+                "MESSAGES_UPSERT": True,
+                "CONNECTION_UPDATE": True,
+            },
+        },
+        {
+            "enabled": True,
+            "url": EVOLUTION_UPSERT_WEBHOOK_URL,
+            "events": ["MESSAGES_UPSERT", "messages.upsert"],
+            "webhook_by_events": True,
+        },
+        {
+            "enabled": True,
+            "webhook": EVOLUTION_UPSERT_WEBHOOK_URL,
+            "events": ["MESSAGES_UPSERT", "messages.upsert"],
+        },
+    ]
+
+    endpoint_variants = [
+        f"{EVOLUTION_API_URL}/webhook/set/{instance_name}",
+        f"{EVOLUTION_API_URL}/webhook/set/{instance_name}/",
+        f"{EVOLUTION_API_URL}/webhook/setWebhook/{instance_name}",
+        f"{EVOLUTION_API_URL}/instance/webhook/{instance_name}",
+    ]
+
+    for endpoint in endpoint_variants:
+        for payload in payload_variants:
+            try:
+                resp = client.post(endpoint, headers=headers, json=payload)
+            except Exception as exc:
+                logger.warning(
+                    "Evolution webhook setup call failed for %s at %s: %s",
+                    instance_name,
+                    endpoint,
+                    exc,
+                )
+                continue
+
+            if resp.status_code < 300:
+                logger.info(
+                    "Configured Evolution upsert webhook for %s via %s",
+                    instance_name,
+                    endpoint,
+                )
+                return {"configured": True}
+
+            logger.warning(
+                "Evolution webhook setup rejected for %s via %s with HTTP %s: %s",
+                instance_name,
+                endpoint,
+                resp.status_code,
+                resp.text,
+            )
+
+    return {"configured": False, "reason": "all_webhook_attempts_failed"}
+
+
 def connect_whatsapp_instance(
     db: Session, gym_id: int, data: WhatsAppConnectRequest
 ) -> WhatsAppConnectResponse:
@@ -271,6 +359,14 @@ def connect_whatsapp_instance(
 
         connect_data = connect_resp.json() if connect_resp.content else {}
         qr_code, pairing_code = _extract_qr_and_pairing(connect_data)
+
+        webhook_setup = _configure_evolution_upsert_webhook(client, api_key, instance_name)
+        if not webhook_setup.get("configured"):
+            logger.warning(
+                "WhatsApp connected but Evolution upsert webhook not configured for %s (%s)",
+                instance_name,
+                webhook_setup.get("reason", "unknown"),
+            )
 
         return WhatsAppConnectResponse(
             instance_name=instance_name,
@@ -339,6 +435,22 @@ def send_welcome_to_member(
     if not api_key:
         return {"status": "skipped", "reason": "no_api_key"}
 
+    try:
+        connection_status = get_whatsapp_connection_status(db, gym_id)
+        if not _connected_status(connection_status.status):
+            logger.info(
+                "Skipping welcome message for gym %s because instance is %s",
+                gym_id,
+                connection_status.status,
+            )
+            return {
+                "status": "skipped",
+                "reason": "instance_not_connected",
+            }
+    except Exception as exc:
+        logger.warning("Could not confirm WhatsApp connection before welcome send: %s", exc)
+        return {"status": "skipped", "reason": "status_unavailable"}
+
     message = _compose_welcome_message(gym.name, member_name, schedule)
     payload = {"number": member_phone, "text": message}
     headers = {"apikey": api_key, "Content-Type": "application/json"}
@@ -350,13 +462,29 @@ def send_welcome_to_member(
                 headers=headers,
                 json=payload,
             )
+        body: dict | None = None
+        try:
+            body = resp.json() if resp.content else None
+        except Exception:
+            body = None
+
+        is_http_ok = resp.status_code < 300
+        body_status = str((body or {}).get("status") or "").lower() if isinstance(body, dict) else ""
+        is_body_failure = body_status in {"error", "failed", "failure"}
+
         logger.info(
             "Welcome message to %s via %s → HTTP %s",
             member_phone,
             cred.instance_name,
             resp.status_code,
         )
-        return {"status": "sent" if resp.status_code < 300 else "failed", "code": resp.status_code}
+        if is_http_ok and not is_body_failure:
+            return {"status": "sent", "code": resp.status_code}
+        return {
+            "status": "failed",
+            "code": resp.status_code,
+            "reason": body_status or "send_rejected",
+        }
     except Exception as exc:
         logger.warning("Failed to send welcome WhatsApp to %s: %s", member_phone, exc)
         return {"status": "error", "reason": str(exc)}
@@ -382,9 +510,40 @@ def _generate_ai_onboarding_copy(gym_name: str, owner_name: str | None) -> dict:
         "- Give two concrete next actions: add first members and schedule first broadcast.\n"
         "- Keep under 70 words.\n"
         "- No markdown, no bullets, no hashtags.\n"
+        "- Output only the final message text, no intro, no labels, no explanation.\n"
         f"Gym name: {gym_name}\n"
         f"Owner name: {owner_display}"
     )
+
+    def _fallback_copy() -> str:
+        return (
+            f"Hey {owner_display}! 🎉 Your WhatsApp is now connected to Alfit for {gym_name}. "
+            "You are all set to start automations 🚀 Add your first members 👥 and schedule your first broadcast 📣 "
+            "to kick things off. Need help? We are here for you 💪"
+        )
+
+    def _sanitize_generated_copy(text: str) -> str | None:
+        cleaned = re.sub(r"\s+", " ", (text or "").strip())
+        if not cleaned:
+            return None
+
+        lower = cleaned.lower()
+        banned_fragments = [
+            "here is a sample",
+            "sample whatsapp",
+            "example message",
+            "whatsapp message in english",
+            "as an ai",
+            "i can",
+            "i cannot",
+        ]
+        if any(fragment in lower for fragment in banned_fragments):
+            return None
+        if cleaned.startswith("-") or cleaned.startswith("*") or "\n-" in cleaned or "\n*" in cleaned:
+            return None
+        if len(cleaned.split()) > 70:
+            return None
+        return cleaned
 
     # Prefer Ollama local generation for deterministic self-hosted behavior.
     if provider == "ollama":
@@ -399,23 +558,27 @@ def _generate_ai_onboarding_copy(gym_name: str, owner_name: str | None) -> dict:
                             "model": candidate_model,
                             "prompt": prompt,
                             "stream": False,
+                            "options": {
+                                "temperature": 0.3,
+                                "num_predict": 110,
+                            },
                         },
                     )
                 if resp.status_code >= 400:
                     continue
                 payload = resp.json() if resp.content else {}
                 text = str(payload.get("response") or "").strip()
-                if text:
-                    return {"text": text, "provider": provider, "model": candidate_model}
+                safe_text = _sanitize_generated_copy(text)
+                if safe_text:
+                    return {"text": safe_text, "provider": provider, "model": candidate_model}
             except Exception:
                 continue
 
-    fallback = (
-        f"Hey {owner_display}! 🎉 Your WhatsApp is now connected to Alfit for {gym_name}. "
-        "You are all set to start automations 🚀 Add your first members 👥 and schedule your first broadcast 📣 "
-        "to kick things off. Need help? We are here for you 💪"
-    )
-    return {"text": fallback, "provider": provider or "fallback", "model": model or "template"}
+    return {
+        "text": _fallback_copy(),
+        "provider": provider or "fallback",
+        "model": model or "template",
+    }
 
 
 def send_onboarding_self_message(
@@ -425,6 +588,9 @@ def send_onboarding_self_message(
     gym = db.query(Gym).filter(Gym.id == gym_id).first()
     if not gym:
         return {"status": "skipped", "reason": "gym_not_found"}
+
+    if gym.onboarding_welcome_sent_at is not None:
+        return {"status": "skipped", "reason": "already_sent"}
 
     try:
         status_res = get_whatsapp_connection_status(db, gym_id)
@@ -446,6 +612,24 @@ def send_onboarding_self_message(
     ai_copy = _generate_ai_onboarding_copy(gym.name, owner_name)
     payload = {"number": phone_number, "text": ai_copy["text"]}
 
+    # Atomic claim to prevent duplicate sends when multiple pollers hit this endpoint.
+    claimed = (
+        db.query(Gym)
+        .filter(
+            Gym.id == gym_id,
+            Gym.onboarding_welcome_sent_at.is_(None),
+        )
+        .update({Gym.onboarding_welcome_sent_at: func.now()}, synchronize_session=False)
+    )
+    db.commit()
+    if claimed == 0:
+        return {
+            "status": "skipped",
+            "reason": "already_sent",
+            "provider": ai_copy["provider"],
+            "model": ai_copy["model"],
+        }
+
     try:
         with httpx.Client(timeout=20.0) as client:
             resp = client.post(
@@ -454,18 +638,29 @@ def send_onboarding_self_message(
                 json=payload,
             )
         if resp.status_code >= 400:
+            db.query(Gym).filter(Gym.id == gym_id).update(
+                {Gym.onboarding_welcome_sent_at: None},
+                synchronize_session=False,
+            )
+            db.commit()
             return {
                 "status": "failed",
                 "reason": f"send_failed_{resp.status_code}",
                 "provider": ai_copy["provider"],
                 "model": ai_copy["model"],
             }
+
         return {
             "status": "sent",
             "provider": ai_copy["provider"],
             "model": ai_copy["model"],
         }
     except Exception as exc:
+        db.query(Gym).filter(Gym.id == gym_id).update(
+            {Gym.onboarding_welcome_sent_at: None},
+            synchronize_session=False,
+        )
+        db.commit()
         return {
             "status": "error",
             "reason": str(exc),

@@ -193,7 +193,14 @@ def send_welcome_message(
     result = service.send_welcome_to_member(
         db, gym_id, data.member_name, data.member_phone, data.schedule
     )
-    return APIResponse(data=WhatsAppSendWelcomeResponse(**result), message="Welcome message processed")
+    status = str(result.get("status") or "unknown")
+    if status == "sent":
+        msg = "Welcome message sent"
+    elif status == "skipped":
+        msg = f"Welcome message skipped: {result.get('reason', 'unknown')}"
+    else:
+        msg = f"Welcome message not sent: {result.get('reason', status)}"
+    return APIResponse(data=WhatsAppSendWelcomeResponse(**result), message=msg)
 
 
 @router.post(

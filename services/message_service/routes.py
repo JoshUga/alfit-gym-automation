@@ -8,6 +8,7 @@ from shared.models import APIResponse
 from services.message_service.schemas import (
     IncomingMessageEvent,
     ProcessedMessageResponse,
+    EvolutionUpsertWebhook,
 )
 from services.message_service import service
 
@@ -37,4 +38,32 @@ def list_processed_messages(
 ):
     """List processed messages."""
     result = service.list_processed_messages(db, gym_id)
+    return APIResponse(data=result)
+
+
+@router.post("/messages/evolution-upsert", response_model=APIResponse[dict])
+def receive_evolution_upsert(
+    data: EvolutionUpsertWebhook,
+    db: Session = Depends(get_session),
+):
+    """Receive MESSAGES_UPSERT webhook payloads from Evolution API."""
+    result = service.handle_evolution_upsert(db, data)
+    return APIResponse(data=result)
+
+
+@router.post("/messages/evolution-upsert/{event_slug:path}", response_model=APIResponse[dict])
+def receive_evolution_upsert_with_event_path(
+    event_slug: str,
+    data: EvolutionUpsertWebhook,
+    db: Session = Depends(get_session),
+):
+    """Receive Evolution webhooks that append event names to the callback path."""
+    normalized_event = event_slug.replace("-", ".").strip().lower()
+    patched = data.model_copy(
+        update={
+            "event": data.event or normalized_event,
+            "event_type": data.event_type or normalized_event,
+        }
+    )
+    result = service.handle_evolution_upsert(db, patched)
     return APIResponse(data=result)

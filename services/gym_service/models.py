@@ -16,6 +16,7 @@ class Gym(Base):
     email = Column(String(255), nullable=True)
     owner_id = Column(Integer, nullable=False, index=True)
     is_active = Column(Boolean, default=True)
+    onboarding_welcome_sent_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

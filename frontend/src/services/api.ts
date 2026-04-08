@@ -84,6 +84,18 @@ export const memberService = {
   }) =>
     api.put(`/members/${id}`, data),
   delete: (id: number) => api.delete(`/members/${id}`),
+  listPayments: (id: number) => api.get(`/members/${id}/payments`),
+  createPayment: (
+    id: number,
+    data: {
+      amount: number;
+      currency?: string;
+      payment_method?: string;
+      status?: string;
+      note?: string;
+      paid_at?: string;
+    }
+  ) => api.post(`/members/${id}/payments`, data),
 };
 
 export const notificationService = {

@@ -87,6 +87,7 @@ class WhatsAppSendWelcomeRequest(BaseModel):
 class WhatsAppSendWelcomeResponse(BaseModel):
     status: str
     reason: Optional[str] = None
+    code: Optional[int] = None
 
 
 class WhatsAppOnboardingWelcomeRequest(BaseModel):

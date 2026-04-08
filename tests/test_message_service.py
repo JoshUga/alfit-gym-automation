@@ -1,6 +1,7 @@
 """Tests for Message Processing Service."""
 
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -86,3 +87,80 @@ class TestProcessMessage:
 
         response = client.get("/api/v1/messages/processed?gym_id=1", headers=auth_headers)
         assert response.status_code == 200
+
+
+class TestEvolutionUpsertWebhook:
+    def test_processes_messages_upsert_event(self, client):
+        with patch("services.message_service.service._generate_ai_reply", return_value={"response_text": "Thanks!"}), patch(
+            "services.message_service.service._send_whatsapp_reply", return_value=None
+        ):
+            response = client.post(
+                "/api/v1/messages/evolution-upsert",
+                json={
+                    "event": "messages.upsert",
+                    "instance": "gym-1",
+                    "data": {
+                        "key": {"id": "upsert-1", "remoteJid": "5511999999999@s.whatsapp.net"},
+                        "message": {"conversation": "Hello from Evolution"},
+                    },
+                },
+            )
+        assert response.status_code == 200
+        payload = response.json()["data"]
+        assert payload["status"] == "processed"
+        assert payload["message_id"] == "upsert-1"
+        assert payload["reply_status"] == "sent"
+
+    def test_ignores_unsupported_event(self, client):
+        response = client.post(
+            "/api/v1/messages/evolution-upsert",
+            json={
+                "event": "connection.update",
+                "instance": "gym-1",
+                "data": {},
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["status"] == "ignored"
+
+    def test_idempotent_single_reply_for_same_message(self, client):
+        with patch("services.message_service.service._generate_ai_reply", return_value={"response_text": "Thanks!"}), patch(
+            "services.message_service.service._send_whatsapp_reply", return_value=None
+        ) as send_reply_mock:
+            payload = {
+                "event": "messages.upsert",
+                "instance": "gym-1",
+                "data": {
+                    "key": {"id": "upsert-idem-1", "remoteJid": "5511888888888@s.whatsapp.net"},
+                    "message": {"conversation": "Hi coach"},
+                },
+            }
+            first = client.post("/api/v1/messages/evolution-upsert", json=payload)
+            second = client.post("/api/v1/messages/evolution-upsert", json=payload)
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["data"]["reply_status"] == "sent"
+        assert second.json()["data"]["status"] == "ignored"
+        assert send_reply_mock.call_count == 1
+
+    def test_skips_reply_for_from_me_messages(self, client):
+        with patch("services.message_service.service._send_whatsapp_reply", return_value=None) as send_reply_mock:
+            response = client.post(
+                "/api/v1/messages/evolution-upsert",
+                json={
+                    "event": "messages.upsert",
+                    "instance": "gym-1",
+                    "data": {
+                        "key": {
+                            "id": "upsert-from-me-1",
+                            "remoteJid": "5511777777777@s.whatsapp.net",
+                            "fromMe": True,
+                        },
+                        "message": {"conversation": "Outbound echo"},
+                    },
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["data"]["reply_status"] == "skipped_from_me"
+        assert send_reply_mock.call_count == 0

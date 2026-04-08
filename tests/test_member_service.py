@@ -192,3 +192,43 @@ class TestGroupAssignment:
 
         response = client.delete(f"/api/v1/groups/{group.id}/members/{member.id}", headers=auth_headers)
         assert response.status_code == 200
+
+
+class TestMemberPayments:
+    def test_create_member_payment(self, client, db, auth_headers):
+        member = Member(gym_id=1, name="Pay Me", phone_number="+4444444444", status=MemberStatus.ACTIVE)
+        db.add(member)
+        db.commit()
+        db.refresh(member)
+
+        response = client.post(
+            f"/api/v1/members/{member.id}/payments",
+            json={
+                "amount": 120,
+                "currency": "USD",
+                "payment_method": "card",
+                "status": "completed",
+                "note": "Monthly plan",
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        payload = response.json()["data"]
+        assert payload["member_id"] == member.id
+        assert payload["amount"] == 120
+
+    def test_list_member_payments(self, client, db, auth_headers):
+        member = Member(gym_id=1, name="Pay List", phone_number="+5555555555", status=MemberStatus.ACTIVE)
+        db.add(member)
+        db.commit()
+        db.refresh(member)
+
+        client.post(
+            f"/api/v1/members/{member.id}/payments",
+            json={"amount": 90, "currency": "USD", "status": "completed"},
+            headers=auth_headers,
+        )
+
+        response = client.get(f"/api/v1/members/{member.id}/payments", headers=auth_headers)
+        assert response.status_code == 200
+        assert len(response.json()["data"]) == 1

@@ -57,3 +57,27 @@ class GroupResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class MemberPaymentCreate(BaseModel):
+    amount: int
+    currency: str = "USD"
+    payment_method: Optional[str] = None
+    status: str = "completed"
+    paid_at: Optional[datetime] = None
+    note: Optional[str] = None
+
+
+class MemberPaymentResponse(BaseModel):
+    id: int
+    member_id: int
+    gym_id: int
+    amount: int
+    currency: str
+    payment_method: Optional[str] = None
+    status: str
+    paid_at: Optional[datetime] = None
+    note: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}

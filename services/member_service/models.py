@@ -28,6 +28,7 @@ class Member(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     group_assignments = relationship("MemberGroupAssignment", back_populates="member", cascade="all, delete-orphan")
+    payments = relationship("MemberPayment", back_populates="member", cascade="all, delete-orphan")
 
 
 class MemberGroup(Base):
@@ -52,3 +53,25 @@ class MemberGroupAssignment(Base):
 
     member = relationship("Member", back_populates="group_assignments")
     group = relationship("MemberGroup", back_populates="assignments")
+
+class MemberPaymentStatus(str, enum.Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class MemberPayment(Base):
+    __tablename__ = "member_payments"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
+    gym_id = Column(Integer, nullable=False, index=True)
+    amount = Column(Integer, nullable=False)
+    currency = Column(String(8), nullable=False, default="USD")
+    payment_method = Column(String(50), nullable=True)
+    status = Column(SQLEnum(MemberPaymentStatus), default=MemberPaymentStatus.COMPLETED, nullable=False)
+    paid_at = Column(DateTime(timezone=True), server_default=func.now())
+    note = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    member = relationship("Member", back_populates="payments")

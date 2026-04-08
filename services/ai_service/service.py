@@ -3,6 +3,7 @@
 import os
 import time
 import logging
+import httpx
 from sqlalchemy.orm import Session
 from shared.exceptions import ValidationException
 from services.ai_service.models import AIConfig, AIResponseLog, AIProvider

@@ -1,7 +1,7 @@
 """Message Service Pydantic schemas."""
 
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 
 
@@ -24,3 +24,11 @@ class ProcessedMessageResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class EvolutionUpsertWebhook(BaseModel):
+    event: Optional[str] = None
+    event_type: Optional[str] = None
+    instance: Optional[str] = None
+    instance_name: Optional[str] = None
+    data: Any = None

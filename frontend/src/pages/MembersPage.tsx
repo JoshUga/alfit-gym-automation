@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { UserPlus, Edit, Trash2 } from 'lucide-react';
+import { UserPlus, Edit, Trash2, CreditCard } from 'lucide-react';
 import DataTable from '../components/DataTable';
 import Drawer from '../components/Drawer';
 import { gymService, memberService } from '../services/api';
@@ -14,8 +14,89 @@ interface Member {
   [key: string]: unknown;
 }
 
+interface MemberPayment {
+  id: number;
+  member_id: number;
+  gym_id: number;
+  amount: number;
+  currency: string;
+  payment_method?: string;
+  status: string;
+  paid_at?: string;
+  note?: string;
+}
+
 function blankForm() {
   return { name: '', email: '', phoneNumber: '', schedule: '' };
+}
+
+function blankPaymentForm() {
+  return { amount: '', currency: 'USD', paymentMethod: '', status: 'completed', note: '' };
+}
+
+function MemberForm({
+  form,
+  onChange,
+  onSubmit,
+  onCancel,
+  submitLabel,
+  submitting,
+}: {
+  form: ReturnType<typeof blankForm>;
+  onChange: (f: ReturnType<typeof blankForm>) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onCancel: () => void;
+  submitLabel: string;
+  submitting: boolean;
+}) {
+  return (
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <input
+        type="text"
+        placeholder="Full Name *"
+        className="input-field"
+        value={form.name}
+        onChange={(e) => onChange({ ...form, name: e.target.value })}
+        required
+      />
+      <input
+        type="email"
+        placeholder="Email"
+        className="input-field"
+        value={form.email}
+        onChange={(e) => onChange({ ...form, email: e.target.value })}
+      />
+      <input
+        type="tel"
+        placeholder="Phone Number * (e.g. +5511999999999)"
+        className="input-field"
+        value={form.phoneNumber}
+        onChange={(e) => onChange({ ...form, phoneNumber: e.target.value })}
+        required
+      />
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Training Schedule</label>
+        <textarea
+          placeholder={"e.g.\nMonday: Chest & Triceps - 7am\nWednesday: Back & Biceps - 7am\nFriday: Legs - 7am"}
+          className="input-field min-h-[100px] resize-y"
+          value={form.schedule}
+          onChange={(e) => onChange({ ...form, schedule: e.target.value })}
+          rows={4}
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          This schedule will be included in the WhatsApp welcome message when delivery succeeds.
+        </p>
+      </div>
+      <div className="flex gap-3 justify-end">
+        <button type="button" onClick={onCancel} className="btn-secondary">
+          Cancel
+        </button>
+        <button type="submit" className="btn-primary" disabled={submitting}>
+          {submitting ? 'Saving...' : submitLabel}
+        </button>
+      </div>
+    </form>
+  );
 }
 
 export default function MembersPage() {
@@ -34,6 +115,11 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [isPaymentDrawerOpen, setIsPaymentDrawerOpen] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [memberPayments, setMemberPayments] = useState<MemberPayment[]>([]);
+  const [paymentForm, setPaymentForm] = useState(blankPaymentForm());
+  const [loadingPayments, setLoadingPayments] = useState(false);
 
   useEffect(() => {
     void loadMembers();
@@ -147,6 +233,56 @@ export default function MembersPage() {
     }
   };
 
+  const openPaymentDrawer = async (member: Member) => {
+    setSelectedMember(member);
+    setPaymentForm(blankPaymentForm());
+    setError('');
+    setIsPaymentDrawerOpen(true);
+    setLoadingPayments(true);
+    try {
+      const res = await memberService.listPayments(member.id);
+      setMemberPayments(res.data.data);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(msg || 'Unable to load payment history');
+      setMemberPayments([]);
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  const handleAddPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMember) {
+      return;
+    }
+
+    const numericAmount = Number(paymentForm.amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setError('Enter a valid payment amount greater than zero');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await memberService.createPayment(selectedMember.id, {
+        amount: Math.round(numericAmount),
+        currency: paymentForm.currency || 'USD',
+        payment_method: paymentForm.paymentMethod || undefined,
+        status: paymentForm.status || 'completed',
+        note: paymentForm.note || undefined,
+      });
+      setMemberPayments((prev) => [res.data.data, ...prev]);
+      setPaymentForm(blankPaymentForm());
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(msg || 'Unable to record payment');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const columns = [
     { key: 'name', label: 'Name' },
     { key: 'email', label: 'Email' },
@@ -181,6 +317,9 @@ export default function MembersPage() {
       label: 'Actions',
       render: (m: Member) => (
         <div className="flex gap-2">
+          <button className="p-1 hover:text-emerald-500" onClick={() => void openPaymentDrawer(m)} title="Manage payments">
+            <CreditCard size={16} />
+          </button>
           <button className="p-1 hover:text-primary-600" onClick={() => openEditModal(m)} title="Edit member">
             <Edit size={16} />
           </button>
@@ -198,67 +337,6 @@ export default function MembersPage() {
       ),
     },
   ];
-
-  const MemberForm = ({
-    form,
-    onChange,
-    onSubmit,
-    onCancel,
-    submitLabel,
-  }: {
-    form: typeof addForm;
-    onChange: (f: typeof addForm) => void;
-    onSubmit: (e: React.FormEvent) => void;
-    onCancel: () => void;
-    submitLabel: string;
-  }) => (
-    <form className="space-y-4" onSubmit={onSubmit}>
-      <input
-        type="text"
-        placeholder="Full Name *"
-        className="input-field"
-        value={form.name}
-        onChange={(e) => onChange({ ...form, name: e.target.value })}
-        required
-      />
-      <input
-        type="email"
-        placeholder="Email"
-        className="input-field"
-        value={form.email}
-        onChange={(e) => onChange({ ...form, email: e.target.value })}
-      />
-      <input
-        type="tel"
-        placeholder="Phone Number * (e.g. +5511999999999)"
-        className="input-field"
-        value={form.phoneNumber}
-        onChange={(e) => onChange({ ...form, phoneNumber: e.target.value })}
-        required
-      />
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Training Schedule</label>
-        <textarea
-          placeholder={"e.g.\nMonday: Chest & Triceps — 7am\nWednesday: Back & Biceps — 7am\nFriday: Legs — 7am"}
-          className="input-field min-h-[100px] resize-y"
-          value={form.schedule}
-          onChange={(e) => onChange({ ...form, schedule: e.target.value })}
-          rows={4}
-        />
-        <p className="text-xs text-gray-400 mt-1">
-          This schedule will be included in the WhatsApp welcome message sent to the member.
-        </p>
-      </div>
-      <div className="flex gap-3 justify-end">
-        <button type="button" onClick={onCancel} className="btn-secondary">
-          Cancel
-        </button>
-        <button type="submit" className="btn-primary" disabled={submitting}>
-          {submitting ? 'Saving...' : submitLabel}
-        </button>
-      </div>
-    </form>
-  );
 
   return (
     <div>
@@ -289,6 +367,7 @@ export default function MembersPage() {
           onSubmit={handleAddMember}
           onCancel={() => setIsAddDrawerOpen(false)}
           submitLabel="Add Member"
+          submitting={submitting}
         />
       </Drawer>
 
@@ -299,6 +378,7 @@ export default function MembersPage() {
           onSubmit={handleEditMember}
           onCancel={() => setIsEditDrawerOpen(false)}
           submitLabel="Save Changes"
+          submitting={submitting}
         />
       </Drawer>
 
@@ -335,6 +415,94 @@ export default function MembersPage() {
           >
             Remove
           </button>
+        </div>
+      </Drawer>
+
+      <Drawer
+        isOpen={isPaymentDrawerOpen}
+        onClose={() => {
+          setIsPaymentDrawerOpen(false);
+          setSelectedMember(null);
+          setMemberPayments([]);
+        }}
+        title={selectedMember ? `Payments - ${selectedMember.name}` : 'Member Payments'}
+      >
+        <form className="space-y-4" onSubmit={handleAddPayment}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <input
+              type="number"
+              min="1"
+              step="1"
+              placeholder="Amount *"
+              className="input-field"
+              value={paymentForm.amount}
+              onChange={(e) => setPaymentForm((prev) => ({ ...prev, amount: e.target.value }))}
+              required
+            />
+            <input
+              type="text"
+              maxLength={8}
+              placeholder="Currency (USD)"
+              className="input-field"
+              value={paymentForm.currency}
+              onChange={(e) => setPaymentForm((prev) => ({ ...prev, currency: e.target.value.toUpperCase() }))}
+            />
+            <input
+              type="text"
+              placeholder="Payment Method"
+              className="input-field"
+              value={paymentForm.paymentMethod}
+              onChange={(e) => setPaymentForm((prev) => ({ ...prev, paymentMethod: e.target.value }))}
+            />
+            <select
+              className="input-field"
+              value={paymentForm.status}
+              onChange={(e) => setPaymentForm((prev) => ({ ...prev, status: e.target.value }))}
+            >
+              <option value="completed">Completed</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+          <textarea
+            rows={2}
+            placeholder="Note"
+            className="input-field min-h-[70px] resize-y"
+            value={paymentForm.note}
+            onChange={(e) => setPaymentForm((prev) => ({ ...prev, note: e.target.value }))}
+          />
+          <div className="flex justify-end">
+            <button type="submit" className="btn-primary" disabled={submitting || !selectedMember}>
+              {submitting ? 'Recording...' : 'Record Payment'}
+            </button>
+          </div>
+        </form>
+
+        <div className="mt-6">
+          <h3 className="mb-3 text-sm font-semibold text-slate-200">Payment History</h3>
+          {loadingPayments ? (
+            <p className="text-sm text-slate-400">Loading payments...</p>
+          ) : memberPayments.length === 0 ? (
+            <p className="text-sm text-slate-400">No payments recorded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {memberPayments.map((payment) => (
+                <div key={payment.id} className="rounded-lg border border-slate-700/80 bg-slate-900/50 p-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-semibold text-slate-100">
+                      {payment.currency} {payment.amount}
+                    </span>
+                    <span className="text-xs uppercase tracking-wide text-slate-400">{payment.status}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    {payment.payment_method || 'Method not set'}
+                    {payment.paid_at ? ` · ${new Date(payment.paid_at).toLocaleString()}` : ''}
+                  </div>
+                  {payment.note && <p className="mt-1 text-xs text-slate-300">{payment.note}</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </Drawer>
     </div>

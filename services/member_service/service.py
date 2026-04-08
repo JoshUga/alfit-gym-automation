@@ -3,7 +3,14 @@
 import json
 from sqlalchemy.orm import Session
 from shared.exceptions import NotFoundException, ConflictException
-from services.member_service.models import Member, MemberGroup, MemberGroupAssignment, MemberStatus
+from services.member_service.models import (
+    Member,
+    MemberGroup,
+    MemberGroupAssignment,
+    MemberStatus,
+    MemberPayment,
+    MemberPaymentStatus,
+)
 from services.member_service.schemas import (
     MemberCreate,
     MemberUpdate,
@@ -11,6 +18,8 @@ from services.member_service.schemas import (
     ScheduleEntry,
     GroupCreate,
     GroupResponse,
+    MemberPaymentCreate,
+    MemberPaymentResponse,
 )
 
 
@@ -192,3 +201,49 @@ def remove_member_from_group(db: Session, group_id: int, member_id: int) -> dict
     db.delete(assignment)
     db.commit()
     return {"message": "Member removed from group successfully"}
+
+
+def list_member_payments(db: Session, member_id: int) -> list[MemberPaymentResponse]:
+    """List payments for a member."""
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise NotFoundException("Member", member_id)
+
+    payments = (
+        db.query(MemberPayment)
+        .filter(MemberPayment.member_id == member_id)
+        .order_by(MemberPayment.paid_at.desc(), MemberPayment.created_at.desc())
+        .all()
+    )
+    return [MemberPaymentResponse.model_validate(payment) for payment in payments]
+
+
+def create_member_payment(
+    db: Session,
+    member_id: int,
+    data: MemberPaymentCreate,
+) -> MemberPaymentResponse:
+    """Register a payment for a member."""
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise NotFoundException("Member", member_id)
+
+    normalized_status = (data.status or "completed").strip().lower()
+    allowed_statuses = {status.value for status in MemberPaymentStatus}
+    if normalized_status not in allowed_statuses:
+        normalized_status = MemberPaymentStatus.COMPLETED.value
+
+    payment = MemberPayment(
+        member_id=member.id,
+        gym_id=member.gym_id,
+        amount=data.amount,
+        currency=(data.currency or "USD").upper(),
+        payment_method=data.payment_method,
+        status=MemberPaymentStatus(normalized_status),
+        paid_at=data.paid_at,
+        note=data.note,
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    return MemberPaymentResponse.model_validate(payment)

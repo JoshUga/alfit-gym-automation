@@ -14,6 +14,8 @@ from services.member_service.schemas import (
     MemberResponse,
     GroupCreate,
     GroupResponse,
+    MemberPaymentCreate,
+    MemberPaymentResponse,
 )
 from services.member_service import service
 
@@ -30,19 +32,27 @@ def get_session():
 
 def _fire_welcome_message(
     gym_id: int, member_name: str, member_phone: str, schedule: str | None, auth_header: str | None
-) -> None:
+) -> dict:
     """Best-effort call to gym_service to send a WhatsApp welcome message."""
     if not auth_header:
-        return
+        return {"status": "skipped", "reason": "missing_auth_header"}
     try:
         with httpx.Client(timeout=10.0) as client:
-            client.post(
+            response = client.post(
                 f"{GYM_SERVICE_URL}/api/v1/gyms/{gym_id}/whatsapp/send-welcome",
                 headers={"Authorization": auth_header, "Content-Type": "application/json"},
                 json={"member_name": member_name, "member_phone": member_phone, "schedule": schedule},
             )
+        if response.status_code >= 400:
+            return {
+                "status": "failed",
+                "reason": f"gym_service_http_{response.status_code}",
+            }
+        payload = response.json() if response.content else {}
+        return (payload.get("data") or {"status": "unknown"}) if isinstance(payload, dict) else {"status": "unknown"}
     except Exception as exc:
         logger.warning("Could not send welcome WhatsApp for member in gym %s: %s", gym_id, exc)
+        return {"status": "error", "reason": str(exc)}
 
 
 @router.post("/members", response_model=APIResponse[MemberResponse])
@@ -54,14 +64,21 @@ def add_member(
 ):
     """Add a new member."""
     result = service.add_member(db, data)
-    _fire_welcome_message(
+    welcome_result = _fire_welcome_message(
         gym_id=data.gym_id,
         member_name=result.name,
         member_phone=result.phone_number,
         schedule=result.schedule,
         auth_header=request.headers.get("Authorization"),
     )
-    return APIResponse(data=result, message="Member added successfully")
+    welcome_status = str(welcome_result.get("status") or "unknown")
+    if welcome_status == "sent":
+        message = "Member added and WhatsApp welcome sent"
+    elif welcome_status == "skipped":
+        message = f"Member added, WhatsApp welcome skipped ({welcome_result.get('reason', 'unknown')})"
+    else:
+        message = f"Member added, WhatsApp welcome not sent ({welcome_result.get('reason', welcome_status)})"
+    return APIResponse(data=result, message=message)
 
 
 @router.get("/members/{member_id}", response_model=APIResponse[MemberResponse])
@@ -154,3 +171,26 @@ def remove_member_from_group(
     """Remove a member from a group."""
     result = service.remove_member_from_group(db, group_id, member_id)
     return APIResponse(message=result["message"])
+
+
+@router.get("/members/{member_id}/payments", response_model=APIResponse[list[MemberPaymentResponse]])
+def list_member_payments(
+    member_id: int,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """List all payments for a member."""
+    result = service.list_member_payments(db, member_id)
+    return APIResponse(data=result)
+
+
+@router.post("/members/{member_id}/payments", response_model=APIResponse[MemberPaymentResponse])
+def create_member_payment(
+    member_id: int,
+    data: MemberPaymentCreate,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Create a payment for a member."""
+    result = service.create_member_payment(db, member_id, data)
+    return APIResponse(data=result, message="Payment recorded successfully")

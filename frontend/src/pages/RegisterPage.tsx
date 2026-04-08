@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, ArrowRight, ChevronLeft, Sparkles } from 'lucide-react';
 import { authService, gymService } from '../services/api';
@@ -33,6 +33,8 @@ export default function RegisterPage() {
   const [onboardingMessageSent, setOnboardingMessageSent] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const pollingInFlightRef = useRef(false);
+  const onboardingSendStartedRef = useRef(false);
 
   useEffect(() => {
     if (!setupDone || !createdGymId) {
@@ -45,9 +47,11 @@ export default function RegisterPage() {
     let intervalId: number | null = null;
 
     const pollStatus = async () => {
-      if (pollingComplete) {
+      if (pollingComplete || pollingInFlightRef.current) {
         return;
       }
+
+      pollingInFlightRef.current = true;
 
       try {
         const statusRes = await gymService.getWhatsAppStatus(createdGymId);
@@ -59,7 +63,8 @@ export default function RegisterPage() {
 
         setConnectionStatus(status || 'pending_connection');
         if (isConnectedStatus(status)) {
-          if (!onboardingMessageSent && whatsAppPhone) {
+          if (!onboardingMessageSent && whatsAppPhone && !onboardingSendStartedRef.current) {
+            onboardingSendStartedRef.current = true;
             try {
               await gymService.sendOnboardingWelcome(createdGymId, {
                 phone_number: whatsAppPhone,
@@ -84,6 +89,8 @@ export default function RegisterPage() {
         if (!cancelled) {
           setConnectionStatus((currentStatus) => currentStatus || 'pending_connection');
         }
+      } finally {
+        pollingInFlightRef.current = false;
       }
     };
 
@@ -153,6 +160,8 @@ export default function RegisterPage() {
 
     setSetupDone(false);
     setOnboardingMessageSent(false);
+    onboardingSendStartedRef.current = false;
+    pollingInFlightRef.current = false;
     setCreatedGymId(null);
     setQrCode('');
     setPairingCode('');

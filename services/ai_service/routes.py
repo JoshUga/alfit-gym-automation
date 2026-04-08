@@ -83,3 +83,13 @@ def generate_response(
     """Generate an AI response for an incoming message."""
     result = service.generate_response(db, data)
     return APIResponse(data=result)
+
+
+@router.post("/ai/generate-response/internal", response_model=APIResponse[GenerateResponseResult])
+def generate_response_internal(
+    data: GenerateResponseRequest,
+    db: Session = Depends(get_session),
+):
+    """Internal service endpoint for generating AI responses without user JWT."""
+    result = service.generate_response(db, data)
+    return APIResponse(data=result)
