@@ -24,6 +24,9 @@ class Member(Base):
     phone_number = Column(String(50), nullable=False)
     status = Column(SQLEnum(MemberStatus), default=MemberStatus.ACTIVE, nullable=False)
     schedule = Column(Text, nullable=True)
+    training_days = Column(Text, nullable=True)
+    target = Column(String(255), nullable=True)
+    monthly_payment_amount = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -70,6 +73,8 @@ class MemberPayment(Base):
     currency = Column(String(8), nullable=False, default="USD")
     payment_method = Column(String(50), nullable=True)
     status = Column(SQLEnum(MemberPaymentStatus), default=MemberPaymentStatus.COMPLETED, nullable=False)
+    billing_month = Column(String(7), nullable=True, index=True)
+    balance_left = Column(Integer, nullable=True)
     paid_at = Column(DateTime(timezone=True), server_default=func.now())
     note = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -405,20 +405,115 @@ def get_whatsapp_connection_status(db: Session, gym_id: int) -> WhatsAppStatusRe
         return WhatsAppStatusResponse(instance_name=cred.instance_name, status=str(status))
 
 
-def _compose_welcome_message(gym_name: str, member_name: str, schedule: str | None) -> str:
-    lines = [
-        f"\U0001f389 Welcome to {gym_name}, {member_name}!",
-        "",
-        "You have been successfully registered as a member. We are excited to have you!",
-    ]
-    if schedule:
-        lines += ["", "\U0001f4c5 Your Training Schedule:", schedule]
-    lines += ["", "Feel free to reach out if you need anything. See you at the gym! \U0001f4aa"]
-    return "\n".join(lines)
+def _generate_ai_member_welcome_copy(
+    gym_name: str,
+    member_name: str,
+    schedule: str | None,
+    training_days: list[str] | None,
+    target: str | None,
+    monthly_payment_amount: int | None,
+) -> dict:
+    provider = AI_PROVIDER
+    model = AI_MODEL
+    days_display = ", ".join(day for day in (training_days or []) if day) or "not specified"
+    target_display = (target or "not specified").strip()
+    fee_display = (
+        f"${monthly_payment_amount}/month"
+        if isinstance(monthly_payment_amount, int) and monthly_payment_amount > 0
+        else "not specified"
+    )
+    schedule_display = (schedule or "").strip() or "not specified"
+
+    prompt = (
+        "Write exactly one short WhatsApp welcome message in English for a new gym member.\n"
+        "Tone: warm, motivating, personal, and human (not robotic).\n"
+        "Rules:\n"
+        "- Mention the gym name and member name naturally.\n"
+        "- Mention training days, target, and monthly payment amount in a natural way.\n"
+        "- Include 2 to 4 relevant emojis.\n"
+        "- Keep it under 85 words.\n"
+        "- No markdown, no bullet points, no hashtags.\n"
+        "- Output only the final message text.\n"
+        f"Gym name: {gym_name}\n"
+        f"Member name: {member_name}\n"
+        f"Training days: {days_display}\n"
+        f"Target: {target_display}\n"
+        f"Monthly payment: {fee_display}\n"
+        f"Schedule details: {schedule_display}"
+    )
+
+    def _fallback_copy() -> str:
+        return (
+            f"Welcome to {gym_name}, {member_name}! 🎉 We are excited to start with you. "
+            f"Your training days are {days_display}, your target is {target_display}, and your monthly plan is {fee_display}. "
+            "You are all set, and we are here to help you stay consistent 💪"
+        )
+
+    def _sanitize_generated_copy(text: str) -> str | None:
+        cleaned = re.sub(r"\s+", " ", (text or "").strip())
+        if not cleaned:
+            return None
+
+        lower = cleaned.lower()
+        banned_fragments = [
+            "here is",
+            "example",
+            "as an ai",
+            "i can",
+            "i cannot",
+        ]
+        if any(fragment in lower for fragment in banned_fragments):
+            return None
+        if cleaned.startswith("-") or cleaned.startswith("*"):
+            return None
+        if len(cleaned.split()) > 85:
+            return None
+        return cleaned
+
+    if provider == "ollama":
+        for candidate_model in [model, AI_FALLBACK_MODEL, "tinyllama"]:
+            if not candidate_model:
+                continue
+            try:
+                with httpx.Client(timeout=35.0) as client:
+                    resp = client.post(
+                        f"{OLLAMA_BASE_URL}/api/generate",
+                        json={
+                            "model": candidate_model,
+                            "prompt": prompt,
+                            "stream": False,
+                            "options": {
+                                "temperature": 0.35,
+                                "num_predict": 130,
+                            },
+                        },
+                    )
+                if resp.status_code >= 400:
+                    continue
+                payload = resp.json() if resp.content else {}
+                text = str(payload.get("response") or "").strip()
+                safe_text = _sanitize_generated_copy(text)
+                if safe_text:
+                    return {"text": safe_text, "provider": provider, "model": candidate_model}
+            except Exception:
+                continue
+
+    return {
+        "text": _fallback_copy(),
+        "provider": provider or "fallback",
+        "model": model or "template",
+    }
 
 
 def send_welcome_to_member(
-    db: Session, gym_id: int, member_name: str, member_phone: str, schedule: str | None = None
+    db: Session,
+    gym_id: int,
+    member_name: str,
+    member_phone: str,
+    schedule: str | None = None,
+    training_days: list[str] | None = None,
+    target: str | None = None,
+    monthly_payment_amount: int | None = None,
 ) -> dict:
     """Send a WhatsApp welcome message to a newly added member."""
     gym = db.query(Gym).filter(Gym.id == gym_id).first()
@@ -451,8 +546,15 @@ def send_welcome_to_member(
         logger.warning("Could not confirm WhatsApp connection before welcome send: %s", exc)
         return {"status": "skipped", "reason": "status_unavailable"}
 
-    message = _compose_welcome_message(gym.name, member_name, schedule)
-    payload = {"number": member_phone, "text": message}
+    ai_copy = _generate_ai_member_welcome_copy(
+        gym_name=gym.name,
+        member_name=member_name,
+        schedule=schedule,
+        training_days=training_days,
+        target=target,
+        monthly_payment_amount=monthly_payment_amount,
+    )
+    payload = {"number": member_phone, "text": ai_copy["text"]}
     headers = {"apikey": api_key, "Content-Type": "application/json"}
 
     try:
@@ -479,15 +581,27 @@ def send_welcome_to_member(
             resp.status_code,
         )
         if is_http_ok and not is_body_failure:
-            return {"status": "sent", "code": resp.status_code}
+            return {
+                "status": "sent",
+                "code": resp.status_code,
+                "provider": ai_copy.get("provider"),
+                "model": ai_copy.get("model"),
+            }
         return {
             "status": "failed",
             "code": resp.status_code,
             "reason": body_status or "send_rejected",
+            "provider": ai_copy.get("provider"),
+            "model": ai_copy.get("model"),
         }
     except Exception as exc:
         logger.warning("Failed to send welcome WhatsApp to %s: %s", member_phone, exc)
-        return {"status": "error", "reason": str(exc)}
+        return {
+            "status": "error",
+            "reason": str(exc),
+            "provider": ai_copy.get("provider"),
+            "model": ai_copy.get("model"),
+        }
 
 
 def _connected_status(status: str) -> bool:

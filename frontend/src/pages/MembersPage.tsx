@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { UserPlus, Edit, Trash2, CreditCard } from 'lucide-react';
 import DataTable from '../components/DataTable';
 import Drawer from '../components/Drawer';
-import { gymService, memberService } from '../services/api';
+import { gymService, memberService, attendanceService, workoutService } from '../services/api';
 
 interface Member {
   id: number;
@@ -11,6 +11,9 @@ interface Member {
   phone_number: string;
   status: string;
   schedule: string;
+  training_days?: string[];
+  target?: string;
+  monthly_payment_amount?: number;
   [key: string]: unknown;
 }
 
@@ -22,16 +25,63 @@ interface MemberPayment {
   currency: string;
   payment_method?: string;
   status: string;
+  billing_month?: string;
+  balance_left?: number;
   paid_at?: string;
   note?: string;
 }
 
-function blankForm() {
-  return { name: '', email: '', phoneNumber: '', schedule: '' };
+interface MemberAttendanceSummary {
+  member_id: number;
+  gym_id: number;
+  total_sessions: number;
+  present_sessions: number;
+  absent_sessions: number;
+  attendance_rate: number;
 }
 
+interface AttendanceRecord {
+  id: number;
+  member_id: number;
+  attendance_date: string;
+  status: 'present' | 'absent';
+}
+
+interface WorkoutPlan {
+  id: number;
+  plan_text: string;
+  provider?: string;
+  model?: string;
+  created_at?: string;
+}
+
+const currentBillingMonth = () => {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${now.getFullYear()}-${month}`;
+};
+
+function blankForm() {
+  return { name: '', email: '', phoneNumber: '', trainingDays: [] as string[], target: '', monthlyAmount: '' };
+}
+
+const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
 function blankPaymentForm() {
-  return { amount: '', currency: 'USD', paymentMethod: '', status: 'completed', note: '' };
+  return { amount: '', currency: 'USD', paymentMethod: '', status: 'completed', billingMonth: currentBillingMonth(), note: '' };
+}
+
+function resolveTrainingDays(member: Member): string[] {
+  if (member.training_days && member.training_days.length > 0) {
+    return member.training_days;
+  }
+
+  if (member.schedule?.toLowerCase().startsWith('training days:')) {
+    const raw = member.schedule.split(':', 2)[1] ?? '';
+    return raw.split(',').map((day) => day.trim()).filter(Boolean);
+  }
+
+  return [];
 }
 
 function MemberForm({
@@ -75,18 +125,61 @@ function MemberForm({
         required
       />
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Training Schedule</label>
-        <textarea
-          placeholder={"e.g.\nMonday: Chest & Triceps - 7am\nWednesday: Back & Biceps - 7am\nFriday: Legs - 7am"}
-          className="input-field min-h-[100px] resize-y"
-          value={form.schedule}
-          onChange={(e) => onChange({ ...form, schedule: e.target.value })}
-          rows={4}
-        />
-        <p className="text-xs text-gray-400 mt-1">
-          This schedule will be included in the WhatsApp welcome message when delivery succeeds.
-        </p>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          <span>Training Days *</span>
+          <span className="art-subtext text-cyan-300/90">Training Days</span>
+        </label>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {WEEK_DAYS.map((day) => {
+            const checked = form.trainingDays.includes(day);
+            return (
+              <label
+                key={day}
+                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition ${
+                  checked ? 'border-cyan-400 bg-cyan-500/10 text-cyan-100' : 'border-slate-700 text-slate-300'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="accent-cyan-400"
+                  checked={checked}
+                  onChange={(e) => {
+                    const nextDays = e.target.checked
+                      ? [...form.trainingDays, day]
+                      : form.trainingDays.filter((d) => d !== day);
+                    onChange({ ...form, trainingDays: nextDays });
+                  }}
+                />
+                {day}
+              </label>
+            );
+          })}
+        </div>
       </div>
+      <input
+        type="text"
+        placeholder="Target * (e.g. Lose 5kg in 3 months)"
+        className="input-field"
+        value={form.target}
+        onChange={(e) => onChange({ ...form, target: e.target.value })}
+        required
+      />
+      <input
+        type="number"
+        min="1"
+        step="1"
+        placeholder="Monthly Amount *"
+        className="input-field"
+        value={form.monthlyAmount}
+        onChange={(e) => onChange({ ...form, monthlyAmount: e.target.value })}
+        required
+      />
+      <p className="text-xs text-gray-400 mt-1">
+        Welcome message content is generated by AI and includes days, target, and monthly payment.
+      </p>
+      {form.trainingDays.length === 0 && (
+        <p className="text-xs text-red-300">Select at least one training day.</p>
+      )}
       <div className="flex gap-3 justify-end">
         <button type="button" onClick={onCancel} className="btn-secondary">
           Cancel
@@ -116,7 +209,13 @@ export default function MembersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [isPaymentDrawerOpen, setIsPaymentDrawerOpen] = useState(false);
+  const [isMemberDetailDrawerOpen, setIsMemberDetailDrawerOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [attendanceSummary, setAttendanceSummary] = useState<MemberAttendanceSummary | null>(null);
+  const [recentAttendance, setRecentAttendance] = useState<AttendanceRecord[]>([]);
+  const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null);
+  const [loadingMemberDetail, setLoadingMemberDetail] = useState(false);
+  const [generatingWorkoutPlan, setGeneratingWorkoutPlan] = useState(false);
   const [memberPayments, setMemberPayments] = useState<MemberPayment[]>([]);
   const [paymentForm, setPaymentForm] = useState(blankPaymentForm());
   const [loadingPayments, setLoadingPayments] = useState(false);
@@ -128,6 +227,7 @@ export default function MembersPage() {
   const loadMembers = useCallback(async () => {
     setLoading(true);
     setError('');
+    let loadedFromCache = false;
 
     try {
       const storedGymId = localStorage.getItem('active_gym_id');
@@ -137,16 +237,19 @@ export default function MembersPage() {
           setGymId(parsedGymId);
           const membersRes = await memberService.list(parsedGymId);
           setMembers(membersRes.data.data);
+          loadedFromCache = true;
         }
       }
 
-      const gymRes = await gymService.getMine();
-      const resolvedGymId = gymRes.data.data.id as number;
-      setGymId(resolvedGymId);
-      localStorage.setItem('active_gym_id', String(resolvedGymId));
+      if (!loadedFromCache) {
+        const gymRes = await gymService.getMine();
+        const resolvedGymId = gymRes.data.data.id as number;
+        setGymId(resolvedGymId);
+        localStorage.setItem('active_gym_id', String(resolvedGymId));
 
-      const membersRes = await memberService.list(resolvedGymId);
-      setMembers(membersRes.data.data);
+        const membersRes = await memberService.list(resolvedGymId);
+        setMembers(membersRes.data.data);
+      }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to load members for your gym');
@@ -162,6 +265,16 @@ export default function MembersPage() {
       setError('No gym is linked to your account yet. Finish gym setup first.');
       return;
     }
+    if (addForm.trainingDays.length === 0) {
+      setError('Select at least one training day');
+      return;
+    }
+
+    const monthlyAmount = Number(addForm.monthlyAmount);
+    if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0) {
+      setError('Enter a valid monthly amount greater than zero');
+      return;
+    }
 
     setSubmitting(true);
     setError('');
@@ -171,7 +284,10 @@ export default function MembersPage() {
         name: addForm.name,
         phone_number: addForm.phoneNumber,
         email: addForm.email || undefined,
-        schedule: addForm.schedule || undefined,
+        schedule: `Training days: ${addForm.trainingDays.join(', ')}`,
+        training_days: addForm.trainingDays,
+        target: addForm.target,
+        monthly_payment_amount: Math.round(monthlyAmount),
       });
 
       setMembers((currentMembers) => [res.data.data, ...currentMembers]);
@@ -186,12 +302,15 @@ export default function MembersPage() {
   };
 
   const openEditModal = (member: Member) => {
+    const resolvedTrainingDays = resolveTrainingDays(member);
     setEditingMember(member);
     setEditForm({
       name: member.name,
       email: member.email ?? '',
       phoneNumber: member.phone_number,
-      schedule: member.schedule ?? '',
+      trainingDays: resolvedTrainingDays,
+      target: member.target ?? '',
+      monthlyAmount: member.monthly_payment_amount ? String(member.monthly_payment_amount) : '',
     });
     setIsEditDrawerOpen(true);
   };
@@ -199,6 +318,17 @@ export default function MembersPage() {
   const handleEditMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMember) return;
+    if (editForm.trainingDays.length === 0) {
+      setError('Select at least one training day');
+      return;
+    }
+
+    const monthlyAmount = Number(editForm.monthlyAmount);
+    if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0) {
+      setError('Enter a valid monthly amount greater than zero');
+      return;
+    }
+
     setSubmitting(true);
     setError('');
     try {
@@ -206,7 +336,10 @@ export default function MembersPage() {
         name: editForm.name,
         phone_number: editForm.phoneNumber,
         email: editForm.email || undefined,
-        schedule: editForm.schedule || undefined,
+        schedule: `Training days: ${editForm.trainingDays.join(', ')}`,
+        training_days: editForm.trainingDays,
+        target: editForm.target,
+        monthly_payment_amount: Math.round(monthlyAmount),
       });
       setMembers((prev) => prev.map((m) => (m.id === editingMember.id ? res.data.data : m)));
       setIsEditDrawerOpen(false);
@@ -263,6 +396,11 @@ export default function MembersPage() {
       return;
     }
 
+    if (!paymentForm.billingMonth) {
+      setError('Select the month this payment covers');
+      return;
+    }
+
     setSubmitting(true);
     setError('');
     try {
@@ -271,6 +409,7 @@ export default function MembersPage() {
         currency: paymentForm.currency || 'USD',
         payment_method: paymentForm.paymentMethod || undefined,
         status: paymentForm.status || 'completed',
+        billing_month: paymentForm.billingMonth,
         note: paymentForm.note || undefined,
       });
       setMemberPayments((prev) => [res.data.data, ...prev]);
@@ -280,6 +419,60 @@ export default function MembersPage() {
       setError(msg || 'Unable to record payment');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openMemberDetails = async (member: Member) => {
+    if (!gymId) {
+      setError('No gym selected');
+      return;
+    }
+    setSelectedMember(member);
+    setIsMemberDetailDrawerOpen(true);
+    setLoadingMemberDetail(true);
+    setError('');
+
+    try {
+      const [summaryRes, recordsRes, workoutRes] = await Promise.all([
+        attendanceService.memberSummary(gymId, member.id),
+        attendanceService.listRecords(gymId, { member_id: member.id }),
+        workoutService.getLatest(gymId, member.id),
+      ]);
+      setAttendanceSummary(summaryRes.data.data);
+      setRecentAttendance((recordsRes.data.data || []).slice(0, 10));
+      setWorkoutPlan(workoutRes.data.data || null);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(msg || 'Unable to load member details');
+      setAttendanceSummary(null);
+      setRecentAttendance([]);
+      setWorkoutPlan(null);
+    } finally {
+      setLoadingMemberDetail(false);
+    }
+  };
+
+  const handleGenerateWorkoutPlan = async () => {
+    if (!gymId || !selectedMember) {
+      setError('Missing gym or member context');
+      return;
+    }
+
+    setGeneratingWorkoutPlan(true);
+    setError('');
+    try {
+      const res = await workoutService.generate(selectedMember.id, {
+        gym_id: gymId,
+        member_name: selectedMember.name,
+        target: selectedMember.target,
+        training_days: resolveTrainingDays(selectedMember),
+      });
+      setWorkoutPlan(res.data.data);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(msg || 'Unable to generate workout plan');
+    } finally {
+      setGeneratingWorkoutPlan(false);
     }
   };
 
@@ -305,27 +498,54 @@ export default function MembersPage() {
     {
       key: 'schedule',
       label: 'Schedule',
-      render: (m: Member) =>
-        m.schedule ? (
-          <span className="text-xs text-gray-600 whitespace-pre-line line-clamp-2">{m.schedule}</span>
+      render: (m: Member) => {
+        const resolvedTrainingDays = resolveTrainingDays(m);
+        return resolvedTrainingDays.length > 0 ? (
+          <span className="text-xs text-gray-600 whitespace-pre-line line-clamp-2">{resolvedTrainingDays.join(', ')}</span>
         ) : (
           <span className="text-xs text-gray-400 italic">—</span>
-        ),
+        );
+      },
+    },
+    {
+      key: 'target',
+      label: 'Target',
+      render: (m: Member) => <span className="text-xs text-gray-600">{m.target || '—'}</span>,
+    },
+    {
+      key: 'monthly_payment_amount',
+      label: 'Monthly Fee',
+      render: (m: Member) => <span className="text-xs text-gray-600">{m.monthly_payment_amount ? `$${m.monthly_payment_amount}` : '—'}</span>,
     },
     {
       key: 'actions',
       label: 'Actions',
       render: (m: Member) => (
         <div className="flex gap-2">
-          <button className="p-1 hover:text-emerald-500" onClick={() => void openPaymentDrawer(m)} title="Manage payments">
+          <button
+            className="p-1 hover:text-emerald-500"
+            onClick={(e) => {
+              e.stopPropagation();
+              void openPaymentDrawer(m);
+            }}
+            title="Manage payments"
+          >
             <CreditCard size={16} />
           </button>
-          <button className="p-1 hover:text-primary-600" onClick={() => openEditModal(m)} title="Edit member">
+          <button
+            className="p-1 hover:text-primary-600"
+            onClick={(e) => {
+              e.stopPropagation();
+              openEditModal(m);
+            }}
+            title="Edit member"
+          >
             <Edit size={16} />
           </button>
           <button
             className="p-1 hover:text-red-600"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setDeleteConfirm(m.id);
               setIsDeleteDrawerOpen(true);
             }}
@@ -356,7 +576,7 @@ export default function MembersPage() {
         {loading ? (
           <p className="text-sm text-slate-400">Loading members...</p>
         ) : (
-          <DataTable columns={columns} data={members} />
+          <DataTable columns={columns} data={members} onRowClick={(member) => void openMemberDetails(member as Member)} />
         )}
       </div>
 
@@ -419,6 +639,84 @@ export default function MembersPage() {
       </Drawer>
 
       <Drawer
+        isOpen={isMemberDetailDrawerOpen}
+        onClose={() => {
+          setIsMemberDetailDrawerOpen(false);
+          setSelectedMember(null);
+          setAttendanceSummary(null);
+          setRecentAttendance([]);
+          setWorkoutPlan(null);
+        }}
+        title={selectedMember ? `Member Details - ${selectedMember.name}` : 'Member Details'}
+      >
+        {loadingMemberDetail ? (
+          <p className="text-sm text-slate-400">Loading member details...</p>
+        ) : !selectedMember ? (
+          <p className="text-sm text-slate-400">Select a member to view details.</p>
+        ) : (
+          <div className="space-y-6">
+            <div className="border border-slate-800 bg-slate-900/50 p-4">
+              <h3 className="text-sm font-semibold text-slate-100">Attendance Summary</h3>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-300 sm:grid-cols-4">
+                <div>
+                  <p className="text-xs text-slate-500">Total</p>
+                  <p>{attendanceSummary?.total_sessions ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Present</p>
+                  <p>{attendanceSummary?.present_sessions ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Absent</p>
+                  <p>{attendanceSummary?.absent_sessions ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Attendance Rate</p>
+                  <p>{attendanceSummary?.attendance_rate ?? 0}%</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-slate-800 bg-slate-900/50 p-4">
+              <h3 className="text-sm font-semibold text-slate-100">Recent Attendance</h3>
+              {recentAttendance.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-400">No attendance records yet.</p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {recentAttendance.map((record) => (
+                    <div key={record.id} className="flex items-center justify-between border border-slate-800 px-3 py-2 text-sm">
+                      <span className="text-slate-300">{record.attendance_date}</span>
+                      <span className={record.status === 'present' ? 'text-emerald-300' : 'text-amber-300'}>{record.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border border-slate-800 bg-slate-900/50 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-100">Workout Plan</h3>
+                <button type="button" className="btn-primary" onClick={() => void handleGenerateWorkoutPlan()} disabled={generatingWorkoutPlan}>
+                  {generatingWorkoutPlan ? 'Generating...' : 'Generate with AI'}
+                </button>
+              </div>
+              {workoutPlan ? (
+                <>
+                  <p className="mb-2 text-xs text-slate-400">
+                    Source: {workoutPlan.provider || 'n/a'}
+                    {workoutPlan.model ? ` · ${workoutPlan.model}` : ''}
+                  </p>
+                  <pre className="whitespace-pre-wrap text-sm text-slate-200">{workoutPlan.plan_text}</pre>
+                </>
+              ) : (
+                <p className="text-sm text-slate-400">No workout plan yet. Generate one with AI.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
         isOpen={isPaymentDrawerOpen}
         onClose={() => {
           setIsPaymentDrawerOpen(false);
@@ -463,6 +761,13 @@ export default function MembersPage() {
               <option value="pending">Pending</option>
               <option value="failed">Failed</option>
             </select>
+            <input
+              type="month"
+              className="input-field"
+              value={paymentForm.billingMonth}
+              onChange={(e) => setPaymentForm((prev) => ({ ...prev, billingMonth: e.target.value }))}
+              required
+            />
           </div>
           <textarea
             rows={2}
@@ -497,6 +802,10 @@ export default function MembersPage() {
                   <div className="mt-1 text-xs text-slate-400">
                     {payment.payment_method || 'Method not set'}
                     {payment.paid_at ? ` · ${new Date(payment.paid_at).toLocaleString()}` : ''}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    For month: {payment.billing_month || 'N/A'}
+                    {typeof payment.balance_left === 'number' ? ` · Balance left: ${payment.currency} ${payment.balance_left}` : ''}
                   </div>
                   {payment.note && <p className="mt-1 text-xs text-slate-300">{payment.note}</p>}
                 </div>

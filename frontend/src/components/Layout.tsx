@@ -5,9 +5,9 @@ import SearchDrawer from './SearchDrawer';
 import {
   Home,
   Users,
+  CalendarDays,
   Bell,
   MessageSquare,
-  CreditCard,
   Settings,
   LogOut,
   Moon,
@@ -22,9 +22,9 @@ import { useEffect, useMemo, useState } from 'react';
 const navItems = [
   { path: '/app', label: 'Dashboard', icon: Home },
   { path: '/app/members', label: 'Members', icon: Users },
+  { path: '/app/attendance', label: 'Attendance', icon: CalendarDays },
   { path: '/app/notifications', label: 'Notifications', icon: Bell },
   { path: '/app/messages', label: 'Messages', icon: MessageSquare },
-  { path: '/app/billing', label: 'Billing', icon: CreditCard },
   { path: '/app/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -53,9 +53,9 @@ export default function Layout() {
     const active = navItems.find((item) => item.path === location.pathname);
     if (active) return active.label;
     if (location.pathname.startsWith('/app/members')) return 'Members';
+    if (location.pathname.startsWith('/app/attendance')) return 'Attendance';
     if (location.pathname.startsWith('/app/notifications')) return 'Notifications';
     if (location.pathname.startsWith('/app/messages')) return 'Messages';
-    if (location.pathname.startsWith('/app/billing')) return 'Billing';
     if (location.pathname.startsWith('/app/settings')) return 'Settings';
     return 'Dashboard';
   }, [location.pathname]);
@@ -63,7 +63,7 @@ export default function Layout() {
   return (
     <div className={`min-h-screen lg:flex ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-72 transform backdrop-blur transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+        className={`fixed left-0 top-16 z-30 h-[calc(100vh-4rem)] w-72 transform backdrop-blur transition-transform duration-300 ease-in-out lg:static lg:top-auto lg:h-auto lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } ${
           isDark
@@ -72,13 +72,19 @@ export default function Layout() {
         }`}
       >
         <div className={`flex h-16 items-center justify-between border-b px-6 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-          <Link to="/" className="text-xl font-semibold tracking-[0.2em] text-cyan-500">ALFIT</Link>
+          <Link to="/" className="text-xl font-semibold tracking-[0.2em] text-cyan-500">
+            <span>ALFIT</span>
+            <span className="art-subtext text-cyan-300/90">ALFIT</span>
+          </Link>
           <Sparkles size={16} className={isDark ? 'text-cyan-300/80' : 'text-cyan-500/80'} />
         </div>
 
         <div className="px-5 pb-3 pt-5">
           <div className={`rounded-2xl border p-4 text-xs ${isDark ? 'border-slate-800 bg-slate-900/70 text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-500/80">Operations cockpit</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-500/80">
+              <span>Operations cockpit</span>
+              <span className="art-subtext text-cyan-300/90">Operations cockpit</span>
+            </p>
             <p className={`mt-2 text-sm ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
               Stay on top of members, automation, and retention in one place.
             </p>
@@ -100,7 +106,12 @@ export default function Layout() {
               }`}
             >
               <Icon size={20} />
-              <span>{label}</span>
+              <span>
+                <span>{label}</span>
+                <span className={`art-subtext ${location.pathname === path ? 'text-slate-900/85' : isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  {label}
+                </span>
+              </span>
             </Link>
           ))}
 
@@ -113,7 +124,10 @@ export default function Layout() {
             }`}
           >
             <LogOut size={18} />
-            Logout
+            <span>
+              <span>Logout</span>
+              <span className={`art-subtext ${isDark ? 'text-red-300/70' : 'text-red-500/70'}`}>Logout</span>
+            </span>
           </button>
         </nav>
       </aside>
@@ -138,8 +152,12 @@ export default function Layout() {
                 {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
               </button>
               <div>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-500/80">Workspace</p>
-                <h1 className={`text-sm font-semibold sm:text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{pageTitle}</h1>
+                <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-500/80">
+                  <span>Workspace</span>
+                </p>
+                <h1 className={`text-sm font-semibold sm:text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  <span>{pageTitle}</span>
+                </h1>
               </div>
             </div>
 

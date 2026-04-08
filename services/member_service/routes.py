@@ -31,7 +31,14 @@ def get_session():
 
 
 def _fire_welcome_message(
-    gym_id: int, member_name: str, member_phone: str, schedule: str | None, auth_header: str | None
+    gym_id: int,
+    member_name: str,
+    member_phone: str,
+    schedule: str | None,
+    training_days: list[str] | None,
+    target: str | None,
+    monthly_payment_amount: int | None,
+    auth_header: str | None,
 ) -> dict:
     """Best-effort call to gym_service to send a WhatsApp welcome message."""
     if not auth_header:
@@ -41,7 +48,14 @@ def _fire_welcome_message(
             response = client.post(
                 f"{GYM_SERVICE_URL}/api/v1/gyms/{gym_id}/whatsapp/send-welcome",
                 headers={"Authorization": auth_header, "Content-Type": "application/json"},
-                json={"member_name": member_name, "member_phone": member_phone, "schedule": schedule},
+                json={
+                    "member_name": member_name,
+                    "member_phone": member_phone,
+                    "schedule": schedule,
+                    "training_days": training_days,
+                    "target": target,
+                    "monthly_payment_amount": monthly_payment_amount,
+                },
             )
         if response.status_code >= 400:
             return {
@@ -69,6 +83,9 @@ def add_member(
         member_name=result.name,
         member_phone=result.phone_number,
         schedule=result.schedule,
+        training_days=result.training_days,
+        target=result.target,
+        monthly_payment_amount=result.monthly_payment_amount,
         auth_header=request.headers.get("Authorization"),
     )
     welcome_status = str(welcome_result.get("status") or "unknown")

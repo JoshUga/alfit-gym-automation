@@ -18,6 +18,9 @@ class MemberCreate(BaseModel):
     email: Optional[EmailStr] = None
     phone_number: str
     schedule: Optional[str] = None
+    training_days: list[str]
+    target: str
+    monthly_payment_amount: int
     weekly_schedule: Optional[list[ScheduleEntry]] = None
 
 
@@ -27,6 +30,9 @@ class MemberUpdate(BaseModel):
     phone_number: Optional[str] = None
     status: Optional[str] = None
     schedule: Optional[str] = None
+    training_days: Optional[list[str]] = None
+    target: Optional[str] = None
+    monthly_payment_amount: Optional[int] = None
     weekly_schedule: Optional[list[ScheduleEntry]] = None
 
 
@@ -38,6 +44,9 @@ class MemberResponse(BaseModel):
     phone_number: str
     status: str
     schedule: Optional[str] = None
+    training_days: Optional[list[str]] = None
+    target: Optional[str] = None
+    monthly_payment_amount: Optional[int] = None
     weekly_schedule: Optional[list[ScheduleEntry]] = None
     created_at: Optional[datetime] = None
 
@@ -64,6 +73,7 @@ class MemberPaymentCreate(BaseModel):
     currency: str = "USD"
     payment_method: Optional[str] = None
     status: str = "completed"
+    billing_month: Optional[str] = None
     paid_at: Optional[datetime] = None
     note: Optional[str] = None
 
@@ -76,6 +86,8 @@ class MemberPaymentResponse(BaseModel):
     currency: str
     payment_method: Optional[str] = None
     status: str
+    billing_month: Optional[str] = None
+    balance_left: Optional[int] = None
     paid_at: Optional[datetime] = None
     note: Optional[str] = None
     created_at: Optional[datetime] = None

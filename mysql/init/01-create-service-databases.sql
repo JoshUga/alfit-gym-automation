@@ -10,6 +10,8 @@ CREATE DATABASE IF NOT EXISTS alfit_admin;
 CREATE DATABASE IF NOT EXISTS alfit_storage;
 CREATE DATABASE IF NOT EXISTS alfit_email;
 CREATE DATABASE IF NOT EXISTS alfit_message;
+CREATE DATABASE IF NOT EXISTS alfit_attendance;
+CREATE DATABASE IF NOT EXISTS alfit_workout;
 
 GRANT ALL PRIVILEGES ON alfit_auth.* TO 'alfit'@'%';
 GRANT ALL PRIVILEGES ON alfit_gym.* TO 'alfit'@'%';
@@ -23,5 +25,7 @@ GRANT ALL PRIVILEGES ON alfit_admin.* TO 'alfit'@'%';
 GRANT ALL PRIVILEGES ON alfit_storage.* TO 'alfit'@'%';
 GRANT ALL PRIVILEGES ON alfit_email.* TO 'alfit'@'%';
 GRANT ALL PRIVILEGES ON alfit_message.* TO 'alfit'@'%';
+GRANT ALL PRIVILEGES ON alfit_attendance.* TO 'alfit'@'%';
+GRANT ALL PRIVILEGES ON alfit_workout.* TO 'alfit'@'%';
 
 FLUSH PRIVILEGES;

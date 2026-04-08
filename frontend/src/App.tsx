@@ -11,7 +11,7 @@ import MembersPage from './pages/MembersPage';
 import NotificationsPage from './pages/NotificationsPage';
 import SettingsPage from './pages/SettingsPage';
 import MessagesPage from './pages/MessagesPage';
-import BillingPage from './pages/BillingPage';
+import AttendancePage from './pages/AttendancePage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
 import DataRemovalPage from './pages/DataRemovalPage';
@@ -48,9 +48,9 @@ export default function App() {
       >
         <Route index element={<DashboardPage />} />
         <Route path="members" element={<MembersPage />} />
+        <Route path="attendance" element={<AttendancePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="messages" element={<MessagesPage />} />
-        <Route path="billing" element={<BillingPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

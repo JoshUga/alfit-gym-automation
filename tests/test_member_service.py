@@ -47,17 +47,25 @@ class TestAddMember:
             "name": "John Doe",
             "phone_number": "+1234567890",
             "email": "john@example.com",
+            "training_days": ["Monday", "Wednesday", "Friday"],
+            "target": "Lose 5kg",
+            "monthly_payment_amount": 120,
         }, headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["data"]["name"] == "John Doe"
         assert data["data"]["status"] == "active"
+        assert data["data"]["target"] == "Lose 5kg"
+        assert data["data"]["monthly_payment_amount"] == 120
 
     def test_add_member_without_email(self, client, auth_headers):
         response = client.post("/api/v1/members", json={
             "gym_id": 1,
             "name": "Jane Doe",
             "phone_number": "+0987654321",
+            "training_days": ["Tuesday", "Thursday"],
+            "target": "Build muscle",
+            "monthly_payment_amount": 150,
         }, headers=auth_headers)
         assert response.status_code == 200
 
@@ -66,6 +74,9 @@ class TestAddMember:
             "gym_id": 1,
             "name": "Test",
             "phone_number": "+1111111111",
+            "training_days": ["Monday"],
+            "target": "Stay active",
+            "monthly_payment_amount": 99,
         })
         assert response.status_code in [401, 403]
 
@@ -208,6 +219,7 @@ class TestMemberPayments:
                 "currency": "USD",
                 "payment_method": "card",
                 "status": "completed",
+                "billing_month": "2026-04",
                 "note": "Monthly plan",
             },
             headers=auth_headers,
@@ -216,6 +228,35 @@ class TestMemberPayments:
         payload = response.json()["data"]
         assert payload["member_id"] == member.id
         assert payload["amount"] == 120
+        assert payload["billing_month"] == "2026-04"
+
+    def test_create_member_payment_balance_left(self, client, db, auth_headers):
+        member = Member(
+            gym_id=1,
+            name="Balance Check",
+            phone_number="+4444000000",
+            status=MemberStatus.ACTIVE,
+            monthly_payment_amount=200,
+        )
+        db.add(member)
+        db.commit()
+        db.refresh(member)
+
+        first = client.post(
+            f"/api/v1/members/{member.id}/payments",
+            json={"amount": 120, "currency": "USD", "status": "completed", "billing_month": "2026-04"},
+            headers=auth_headers,
+        )
+        assert first.status_code == 200
+        assert first.json()["data"]["balance_left"] == 80
+
+        second = client.post(
+            f"/api/v1/members/{member.id}/payments",
+            json={"amount": 60, "currency": "USD", "status": "completed", "billing_month": "2026-04"},
+            headers=auth_headers,
+        )
+        assert second.status_code == 200
+        assert second.json()["data"]["balance_left"] == 20
 
     def test_list_member_payments(self, client, db, auth_headers):
         member = Member(gym_id=1, name="Pay List", phone_number="+5555555555", status=MemberStatus.ACTIVE)

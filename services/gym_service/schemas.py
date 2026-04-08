@@ -82,12 +82,17 @@ class WhatsAppSendWelcomeRequest(BaseModel):
     member_name: str
     member_phone: str
     schedule: Optional[str] = None
+    training_days: Optional[list[str]] = None
+    target: Optional[str] = None
+    monthly_payment_amount: Optional[int] = None
 
 
 class WhatsAppSendWelcomeResponse(BaseModel):
     status: str
     reason: Optional[str] = None
     code: Optional[int] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
 
 
 class WhatsAppOnboardingWelcomeRequest(BaseModel):

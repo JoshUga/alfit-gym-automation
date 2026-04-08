@@ -1,6 +1,8 @@
 """Member Service business logic."""
 
 import json
+from datetime import datetime, UTC
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from shared.exceptions import NotFoundException, ConflictException
 from services.member_service.models import (
@@ -52,6 +54,19 @@ def _format_weekly_schedule(entries: list[ScheduleEntry]) -> str:
     )
 
 
+def _parse_training_days(training_days_value: str | None) -> list[str] | None:
+    if not training_days_value:
+        return None
+    try:
+        payload = json.loads(training_days_value)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, list):
+        return None
+    parsed = [str(day).strip() for day in payload if str(day).strip()]
+    return parsed or None
+
+
 def _resolve_schedule_storage(
     schedule: str | None,
     weekly_schedule: list[ScheduleEntry] | None,
@@ -66,6 +81,11 @@ def _resolve_schedule_storage(
 def _member_to_response(member: Member) -> MemberResponse:
     weekly_schedule = _parse_weekly_schedule(member.schedule)
     schedule_text = _format_weekly_schedule(weekly_schedule) if weekly_schedule else member.schedule
+    training_days = _parse_training_days(member.training_days)
+    if training_days is None and member.schedule and member.schedule.lower().startswith("training days:"):
+        raw_days = member.schedule.split(":", 1)[1] if ":" in member.schedule else ""
+        inferred_days = [day.strip() for day in raw_days.split(",") if day.strip()]
+        training_days = inferred_days or None
     return MemberResponse(
         id=member.id,
         gym_id=member.gym_id,
@@ -74,6 +94,9 @@ def _member_to_response(member: Member) -> MemberResponse:
         phone_number=member.phone_number,
         status=member.status.value if hasattr(member.status, "value") else str(member.status),
         schedule=schedule_text,
+        training_days=training_days,
+        target=member.target,
+        monthly_payment_amount=member.monthly_payment_amount,
         weekly_schedule=weekly_schedule,
         created_at=member.created_at,
     )
@@ -87,6 +110,9 @@ def add_member(db: Session, data: MemberCreate) -> MemberResponse:
         email=data.email,
         phone_number=data.phone_number,
         schedule=_resolve_schedule_storage(data.schedule, data.weekly_schedule),
+        training_days=json.dumps(data.training_days),
+        target=data.target,
+        monthly_payment_amount=data.monthly_payment_amount,
     )
     db.add(member)
     db.commit()
@@ -122,6 +148,10 @@ def update_member(db: Session, member_id: int, data: MemberUpdate) -> MemberResp
         )
         update_data.pop("schedule", None)
         update_data.pop("weekly_schedule", None)
+
+    if "training_days" in update_data:
+        training_days = update_data.pop("training_days")
+        member.training_days = json.dumps(training_days) if training_days else None
 
     for field, value in update_data.items():
         setattr(member, field, value)
@@ -233,6 +263,31 @@ def create_member_payment(
     if normalized_status not in allowed_statuses:
         normalized_status = MemberPaymentStatus.COMPLETED.value
 
+    billing_month = (data.billing_month or "").strip()
+    if not billing_month:
+        reference_date = data.paid_at or datetime.now(UTC)
+        billing_month = reference_date.strftime("%Y-%m")
+    else:
+        try:
+            datetime.strptime(billing_month, "%Y-%m")
+        except ValueError:
+            billing_month = datetime.now(UTC).strftime("%Y-%m")
+
+    completed_paid_so_far = (
+        db.query(func.coalesce(func.sum(MemberPayment.amount), 0))
+        .filter(
+            MemberPayment.member_id == member.id,
+            MemberPayment.billing_month == billing_month,
+            MemberPayment.status == MemberPaymentStatus.COMPLETED,
+        )
+        .scalar()
+    )
+    already_paid = int(completed_paid_so_far or 0)
+    paid_after_this = already_paid + (data.amount if normalized_status == MemberPaymentStatus.COMPLETED.value else 0)
+    balance_left = None
+    if member.monthly_payment_amount is not None and member.monthly_payment_amount > 0:
+        balance_left = max(member.monthly_payment_amount - paid_after_this, 0)
+
     payment = MemberPayment(
         member_id=member.id,
         gym_id=member.gym_id,
@@ -240,6 +295,8 @@ def create_member_payment(
         currency=(data.currency or "USD").upper(),
         payment_method=data.payment_method,
         status=MemberPaymentStatus(normalized_status),
+        billing_month=billing_month,
+        balance_left=balance_left,
         paid_at=data.paid_at,
         note=data.note,
     )

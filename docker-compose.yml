@@ -70,6 +70,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
     networks:
       - alfit-network
 
@@ -94,6 +95,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+    restart: unless-stopped
     networks:
       - alfit-network
 
@@ -139,6 +141,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+    restart: unless-stopped
     networks:
       - alfit-network
 
@@ -318,6 +321,45 @@ services:
     networks:
       - alfit-network
 
+  attendance-service:
+    build:
+      context: .
+      dockerfile: services/attendance_service/Dockerfile
+    ports:
+      - "8014:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_attendance
+      REDIS_HOST: redis
+      JWT_SECRET_KEY: your-production-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - alfit-network
+
+  workout-service:
+    build:
+      context: .
+      dockerfile: services/workout_service/Dockerfile
+    ports:
+      - "8015:8000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alfit_workout
+      REDIS_HOST: redis
+      JWT_SECRET_KEY: your-production-secret-key
+      AI_SERVICE_URL: http://ai-service:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - alfit-network
+
   # API Gateway
   nginx:
     image: nginx:alpine
@@ -337,6 +379,9 @@ services:
       - storage-service
       - email-service
       - message-service
+      - attendance-service
+      - workout-service
+    restart: unless-stopped
     networks:
       - alfit-network
 

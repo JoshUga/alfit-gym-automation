@@ -71,6 +71,9 @@ export const memberService = {
     phone_number: string;
     email?: string;
     schedule?: string;
+    training_days: string[];
+    target: string;
+    monthly_payment_amount: number;
     weekly_schedule?: Array<{ day: string; start_time: string; end_time: string; activity: string }>;
   }) =>
     api.post('/members', data),
@@ -80,6 +83,9 @@ export const memberService = {
     email?: string;
     status?: string;
     schedule?: string;
+    training_days?: string[];
+    target?: string;
+    monthly_payment_amount?: number;
     weekly_schedule?: Array<{ day: string; start_time: string; end_time: string; activity: string }>;
   }) =>
     api.put(`/members/${id}`, data),
@@ -92,6 +98,7 @@ export const memberService = {
       currency?: string;
       payment_method?: string;
       status?: string;
+      billing_month?: string;
       note?: string;
       paid_at?: string;
     }
@@ -110,6 +117,36 @@ export const analyticsService = {
   getKPIs: (gymId: number) => api.get(`/analytics/kpis?gym_id=${gymId}`),
   getMessageVolume: (gymId: number) => api.get(`/analytics/message-volume?gym_id=${gymId}`),
   getMessageLogs: (gymId: number) => api.get(`/logs/messages?gym_id=${gymId}`),
+};
+
+export const attendanceService = {
+  createRecord: (data: {
+    gym_id: number;
+    member_id: number;
+    attendance_date: string;
+    status: 'present' | 'absent';
+    note?: string;
+  }) => api.post('/attendance/records', data),
+  listRecords: (
+    gymId: number,
+    params?: { member_id?: number; start_date?: string; end_date?: string }
+  ) => api.get(`/gyms/${gymId}/attendance/records`, { params }),
+  memberSummary: (gymId: number, memberId: number) =>
+    api.get(`/gyms/${gymId}/members/${memberId}/attendance/summary`),
+};
+
+export const workoutService = {
+  getLatest: (gymId: number, memberId: number) =>
+    api.get(`/gyms/${gymId}/members/${memberId}/workout-plan`),
+  generate: (
+    memberId: number,
+    data: {
+      gym_id: number;
+      member_name: string;
+      target?: string;
+      training_days?: string[];
+    }
+  ) => api.post(`/members/${memberId}/workout-plan/generate`, data),
 };
 
 export const aiService = {

@@ -191,7 +191,14 @@ def send_welcome_message(
 ):
     """Send a WhatsApp welcome message to a newly added member."""
     result = service.send_welcome_to_member(
-        db, gym_id, data.member_name, data.member_phone, data.schedule
+        db,
+        gym_id,
+        data.member_name,
+        data.member_phone,
+        data.schedule,
+        data.training_days,
+        data.target,
+        data.monthly_payment_amount,
     )
     status = str(result.get("status") or "unknown")
     if status == "sent":

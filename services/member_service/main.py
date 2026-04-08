@@ -36,3 +36,15 @@ def create_tables() -> None:
         columns = {col["name"] for col in inspector.get_columns("members")}
         if "schedule" not in columns:
             conn.execute(text("ALTER TABLE members ADD COLUMN schedule TEXT NULL"))
+        if "training_days" not in columns:
+            conn.execute(text("ALTER TABLE members ADD COLUMN training_days TEXT NULL"))
+        if "target" not in columns:
+            conn.execute(text("ALTER TABLE members ADD COLUMN target VARCHAR(255) NULL"))
+        if "monthly_payment_amount" not in columns:
+            conn.execute(text("ALTER TABLE members ADD COLUMN monthly_payment_amount INTEGER NULL"))
+
+        payment_columns = {col["name"] for col in inspector.get_columns("member_payments")}
+        if "billing_month" not in payment_columns:
+            conn.execute(text("ALTER TABLE member_payments ADD COLUMN billing_month VARCHAR(7) NULL"))
+        if "balance_left" not in payment_columns:
+            conn.execute(text("ALTER TABLE member_payments ADD COLUMN balance_left INTEGER NULL"))
