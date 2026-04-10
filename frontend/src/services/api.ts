@@ -161,17 +161,3 @@ export const workoutService = {
 export const aiService = {
   getRuntimeConfig: () => api.get('/ai/runtime-config'),
 };
-
-export const serviceAdminApi = {
-  login: (data: { username: string; password: string }) => api.post('/admin/service/login', data),
-  getOverview: (headers: Record<string, string>) => api.get('/admin/service/overview', { headers }),
-  listGyms: (headers: Record<string, string>) => api.get('/admin/service/gyms', { headers }),
-  createBackup: (headers: Record<string, string>, data?: { label?: string }) =>
-    api.post('/admin/service/backups', data || {}, { headers }),
-  listBackups: (headers: Record<string, string>) => api.get('/admin/service/backups', { headers }),
-  restoreBackup: (
-    headers: Record<string, string>,
-    backupId: number,
-    data?: { clear_existing?: boolean }
-  ) => api.post(`/admin/service/backups/${backupId}/restore`, data || {}, { headers }),
-};

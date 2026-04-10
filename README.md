@@ -19,8 +19,8 @@ The system rotates active SMTP accounts automatically for outgoing email sends.
 
 A dedicated service admin dashboard is available at:
 
-- Frontend route: `/service-admin`
-- Backend APIs: `/api/admin/service/*`
+- Standalone admin-service UI: `/admin/service/dashboard` (served by admin-service)
+- Backend APIs: `/api/v1/admin/service/*`
 
 Default service-admin credentials (for bootstrap/demo):
 

@@ -128,8 +128,19 @@ services:
 
   emailengine:
     image: postalsys/emailengine:latest
+    command:
+      - node
+      - server.js
+      - --dbs.redis=redis://host.docker.internal:6379/8
+      - --api.port=3000
+      - --api.host=0.0.0.0
+    depends_on:
+      redis:
+        condition: service_started
     ports:
       - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       EENGINE_PORT: 3000
       EENGINE_HOST: 0.0.0.0
