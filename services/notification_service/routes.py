@@ -13,6 +13,8 @@ from services.notification_service.schemas import (
     ScheduleCreate,
     ScheduleUpdate,
     ScheduleResponse,
+    SessionReminderDispatchRequest,
+    SessionReminderDispatchResponse,
 )
 from services.notification_service import service
 
@@ -84,9 +86,16 @@ def delete_template(
 def preview_template(
     data: TemplatePreviewRequest,
     current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
 ):
     """Preview a template with variable substitution."""
-    result = service.preview_template(data.content, data.variables)
+    content = data.content
+    if data.template_id and not content:
+        template = service.get_template(db, data.template_id)
+        content = template.content
+    if not content:
+        content = ""
+    result = service.preview_template(content, data.variables)
     return APIResponse(data=result)
 
 
@@ -103,7 +112,7 @@ def schedule_notification(
 
 @router.get("/notifications/scheduled", response_model=APIResponse[list[ScheduleResponse]])
 def list_scheduled_notifications(
-    gym_id: int = Query(..., description="Gym ID to filter by"),
+    gym_id: int | None = Query(None, description="Gym ID to filter by"),
     current_user: UserClaims = Depends(get_current_user),
     db: Session = Depends(get_session),
 ):
@@ -133,3 +142,30 @@ def cancel_notification(
     """Cancel a scheduled notification."""
     result = service.cancel_notification(db, schedule_id)
     return APIResponse(message=result["message"])
+
+
+@router.post(
+    "/notifications/dispatch/session-reminders",
+    response_model=APIResponse[SessionReminderDispatchResponse],
+)
+def dispatch_session_reminders(
+    data: SessionReminderDispatchRequest,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Dispatch dual-channel reminders for upcoming/missed sessions."""
+    result = service.dispatch_session_reminders(db, gym_id=data.gym_id, run_at=data.run_at)
+    return APIResponse(data=result, message="Session reminders dispatched")
+
+
+@router.post(
+    "/notifications/dispatch/session-reminders/internal",
+    response_model=APIResponse[SessionReminderDispatchResponse],
+)
+def dispatch_session_reminders_internal(
+    data: SessionReminderDispatchRequest,
+    db: Session = Depends(get_session),
+):
+    """Internal scheduler endpoint for session reminder dispatch."""
+    result = service.dispatch_session_reminders(db, gym_id=data.gym_id, run_at=data.run_at)
+    return APIResponse(data=result, message="Session reminders dispatched")

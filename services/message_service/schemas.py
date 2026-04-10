@@ -32,3 +32,10 @@ class EvolutionUpsertWebhook(BaseModel):
     instance: Optional[str] = None
     instance_name: Optional[str] = None
     data: Any = None
+
+
+class OutboundWhatsAppRequest(BaseModel):
+    gym_id: Optional[int] = None
+    instance_name: Optional[str] = None
+    phone_number: str
+    content: str

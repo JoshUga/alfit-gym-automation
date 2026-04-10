@@ -1,6 +1,7 @@
 """Tests for Email Service."""
 
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -70,3 +71,58 @@ class TestSendEmail:
             "template_data": {"name": "Jane"},
         }, headers=auth_headers)
         assert response.status_code == 200
+
+    def test_smtp_rotation_uses_multiple_accounts(self, client, auth_headers):
+        first = client.post("/api/v1/email/smtp/accounts", json={
+            "gym_id": 1,
+            "name": "Primary",
+            "emailengine_account_id": "primary-account",
+        }, headers=auth_headers)
+        second = client.post("/api/v1/email/smtp/accounts", json={
+            "gym_id": 1,
+            "name": "Backup",
+            "emailengine_account_id": "backup-account",
+        }, headers=auth_headers)
+        assert first.status_code == 200
+        assert second.status_code == 200
+
+        with patch("services.email_service.service._send_via_emailengine", return_value="emailengine"):
+            one = client.post("/api/v1/email/send/internal", json={
+                "gym_id": 1,
+                "recipient": "a@example.com",
+                "subject": "One",
+                "template_name": "reminder",
+                "template_data": {"content": "one"},
+            })
+            two = client.post("/api/v1/email/send/internal", json={
+                "gym_id": 1,
+                "recipient": "b@example.com",
+                "subject": "Two",
+                "template_name": "reminder",
+                "template_data": {"content": "two"},
+            })
+        assert one.status_code == 200
+        assert two.status_code == 200
+
+        logs = client.get("/api/v1/email/logs", headers=auth_headers)
+        assert logs.status_code == 200
+        assert len(logs.json()["data"]) >= 2
+
+    def test_smtp_health_check_endpoint(self, client, auth_headers):
+        account = client.post("/api/v1/email/smtp/accounts", json={
+            "gym_id": 1,
+            "name": "Health",
+            "emailengine_account_id": "health-account",
+        }, headers=auth_headers)
+        assert account.status_code == 200
+        account_id = account.json()["data"]["id"]
+
+        with patch("services.email_service.service._check_smtp_account_health", return_value="healthy"):
+            response = client.post("/api/v1/email/smtp/health-check", json={
+                "gym_id": 1,
+                "account_id": account_id,
+            }, headers=auth_headers)
+        assert response.status_code == 200
+        payload = response.json()["data"]["results"]
+        assert len(payload) == 1
+        assert payload[0]["health_status"] == "healthy"
