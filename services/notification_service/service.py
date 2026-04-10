@@ -233,7 +233,7 @@ def _send_whatsapp(gym_id: int, phone_number: str, content: str) -> bool:
         return False
 
 
-def _send_email(gym_id: int, recipient: str, subject: str, template_name: str, content: str) -> bool:
+def _send_email(gym_id: int, recipient: str, subject: str, reminder_kind: str, content: str) -> bool:
     try:
         with httpx.Client(timeout=15.0) as client:
             response = client.post(
@@ -243,8 +243,8 @@ def _send_email(gym_id: int, recipient: str, subject: str, template_name: str, c
                     "gym_id": gym_id,
                     "recipient": recipient,
                     "subject": subject,
-                    "template_name": template_name,
-                    "template_data": {"content": content},
+                    "template_name": "session_reminder",
+                    "template_data": {"content": content, "reminder_kind": reminder_kind},
                 },
             )
         return response.status_code < 400
@@ -260,8 +260,8 @@ def dispatch_session_reminders(
     now = run_at or datetime.now(UTC)
     today = now.date()
     tomorrow = today + timedelta(days=1)
-    today_name = _normalize_day_name(today.strftime("%A"))
-    tomorrow_name = _normalize_day_name(tomorrow.strftime("%A"))
+    today_weekday = _normalize_day_name(today.strftime("%A"))
+    tomorrow_weekday = _normalize_day_name(tomorrow.strftime("%A"))
     send_missed = now.hour >= 22
 
     members = (
@@ -295,7 +295,7 @@ def dispatch_session_reminders(
         )
 
         reminders: list[tuple[str, str, str]] = []
-        if tomorrow_name in member_days:
+        if tomorrow_weekday in member_days:
             reminders.append(
                 (
                     "session_tomorrow_reminder",
@@ -303,7 +303,7 @@ def dispatch_session_reminders(
                     f"Hi {member.name}, reminder: your gym session is scheduled for tomorrow.",
                 )
             )
-        if today_name in member_days and not has_today_attendance:
+        if today_weekday in member_days and not has_today_attendance:
             reminders.append(
                 (
                     "session_today_reminder",

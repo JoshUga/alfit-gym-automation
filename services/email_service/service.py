@@ -40,6 +40,7 @@ def _build_emailengine_headers() -> dict:
 def _send_via_emailengine(account: SMTPAccount | None, data: SendEmailRequest) -> str:
     if not EMAILENGINE_BASE_URL or not account:
         return "emailengine-default"
+    html_content = preview_email_template(data.template_name, data.template_data).get("html_content", "")
     with httpx.Client(timeout=20.0) as client:
         response = client.post(
             f"{EMAILENGINE_BASE_URL}/v1/account/{account.emailengine_account_id}/submit",
@@ -48,7 +49,7 @@ def _send_via_emailengine(account: SMTPAccount | None, data: SendEmailRequest) -
                 "to": [str(data.recipient)],
                 "subject": data.subject,
                 "text": "",
-                "html": preview_email_template(data.template_name, data.template_data).get("html_content", ""),
+                "html": html_content,
             },
         )
     if response.status_code >= 400:
