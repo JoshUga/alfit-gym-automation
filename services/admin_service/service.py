@@ -62,7 +62,7 @@ def _is_safe_identifier(value: str) -> bool:
 def _table_candidates(table_name: str) -> list[str]:
     if "." not in table_name:
         return [table_name]
-    _, plain_name = table_name.split(".", 1)
+    _, plain_name = table_name.rsplit(".", 1)
     return [table_name, plain_name]
 
 

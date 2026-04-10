@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 EMAILENGINE_BASE_URL = os.getenv("EMAILENGINE_BASE_URL", "").rstrip("/")
 EMAILENGINE_API_TOKEN = os.getenv("EMAILENGINE_API_TOKEN", "").strip()
 _RUNTIME_EMAILENGINE_API_TOKEN = ""
+SMTP_SEED_DELIMITER = "|"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -36,14 +37,14 @@ def _current_emailengine_api_token() -> str:
         return EMAILENGINE_API_TOKEN
     if _RUNTIME_EMAILENGINE_API_TOKEN:
         return _RUNTIME_EMAILENGINE_API_TOKEN
-    smtp_seed = "|".join([
+    smtp_seed = SMTP_SEED_DELIMITER.join([
         os.getenv("SMTP_HOST", "").strip(),
         os.getenv("SMTP_USERNAME", "").strip(),
         os.getenv("SMTP_PASSWORD", "").strip(),
         os.getenv("SMTP_FROM_EMAIL", "").strip(),
         os.getenv("SMTP_FROM_NAME", "").strip(),
     ])
-    if not smtp_seed.strip("|"):
+    if not smtp_seed.strip(SMTP_SEED_DELIMITER):
         return ""
     _RUNTIME_EMAILENGINE_API_TOKEN = hashlib.sha256(smtp_seed.encode("utf-8")).hexdigest()
     logger.warning(
@@ -149,6 +150,7 @@ def _ensure_emailengine_account(account_id: str) -> bool:
                 headers=_build_emailengine_headers(),
                 json=payload,
             )
+            # 409 means account already exists and is acceptable for idempotent bootstrap.
             if create_response.status_code < 400 or create_response.status_code == 409:
                 return True
             upsert_response = client.put(
@@ -195,7 +197,8 @@ def auto_initialize_emailengine(db: Session) -> dict:
         existing.is_active = True
     db.commit()
 
-    generated_token = bool(_current_emailengine_api_token()) and not bool(EMAILENGINE_API_TOKEN)
+    _current_emailengine_api_token()
+    generated_token = bool(_RUNTIME_EMAILENGINE_API_TOKEN)
     return {
         "initialized": True,
         "account_id": account_id,

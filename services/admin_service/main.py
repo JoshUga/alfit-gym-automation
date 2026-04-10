@@ -79,13 +79,14 @@ def service_dashboard():
               <span id="gym-summary" class="muted"></span>
             </div>
             <div class="scroll">
-              <table><thead><tr><th>ID</th><th>Gym</th><th>Email</th><th>Phone</th><th>Members</th><th>Status</th></tr></thead><tbody id="gyms"></tbody></table>
+              <table aria-label="Gyms list"><caption class="muted">Registered gyms</caption><thead><tr><th>ID</th><th>Gym</th><th>Email</th><th>Phone</th><th>Members</th><th>Status</th></tr></thead><tbody id="gyms"></tbody></table>
             </div>
           </div>
         </div>
         <script>
           let headers = null;
           let allGyms = [];
+          const esc = (v) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
           function setMsg(t) {{ document.getElementById('msg').textContent = t; }}
           async function api(path, opts={{}}) {{
             const r = await fetch(path, {{...opts, headers: {{'Content-Type':'application/json', ...(headers||{{}}), ...(opts.headers||{{}})}}}});
@@ -112,7 +113,7 @@ def service_dashboard():
             const filter = (document.getElementById('gym-filter').value || '').toLowerCase().trim();
             const visible = allGyms.filter(g => !filter || `${{g.name||''}} ${{g.email||''}}`.toLowerCase().includes(filter));
             document.getElementById('gym-summary').textContent = `${{visible.length}} gym(s) shown`;
-            document.getElementById('gyms').innerHTML = visible.map(g => `<tr><td>${{g.id}}</td><td>${{g.name||'-'}}</td><td>${{g.email||'-'}}</td><td>${{g.phone||'-'}}</td><td>${{g.member_count||0}}</td><td>${{g.is_active?'Active':'Inactive'}}</td></tr>`).join('');
+            document.getElementById('gyms').innerHTML = visible.map(g => `<tr><td>${{esc(g.id)}}</td><td>${{esc(g.name||'-')}}</td><td>${{esc(g.email||'-')}}</td><td>${{esc(g.phone||'-')}}</td><td>${{esc(g.member_count||0)}}</td><td>${{g.is_active?'Active':'Inactive'}}</td></tr>`).join('');
           }}
           async function load() {{
             if (!headers) {{ setMsg('Login first'); return; }}
@@ -128,9 +129,9 @@ def service_dashboard():
               renderGyms();
               document.getElementById('backups').innerHTML = (backups?.data || []).map(b => `
                 <div class="row" style="margin:6px 0">
-                  <span>#${{b.id}}</span>
-                  <span>${{b.label||'no-label'}}</span>
-                  <span class="muted">${{b.created_at||''}}</span>
+                  <span>#${{esc(b.id)}}</span>
+                  <span>${{esc(b.label||'no-label')}}</span>
+                  <span class="muted">${{esc(b.created_at||'')}}</span>
                   <label><input type="checkbox" id="restore-clear-${{b.id}}" /> clear existing</label>
                   <button onclick="restore(${{b.id}})">Restore</button>
                 </div>

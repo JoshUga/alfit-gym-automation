@@ -157,6 +157,9 @@ class TestServiceAdminDashboard:
         )
         assert purged.status_code == 200
         assert purged.json()["data"]["cleared_tables"] >= 1
+        backups_after_purge = client.get("/api/v1/admin/service/backups", headers=headers)
+        assert backups_after_purge.status_code == 200
+        assert any(item["id"] == backup_id for item in backups_after_purge.json()["data"])
 
         gyms_after_purge = client.get("/api/v1/admin/service/gyms", headers=headers)
         assert gyms_after_purge.status_code == 200
