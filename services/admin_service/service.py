@@ -59,6 +59,13 @@ def _is_safe_identifier(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value or ""))
 
 
+def _is_safe_table_identifier(value: str) -> bool:
+    parts = (value or "").split(".")
+    if not 1 <= len(parts) <= 2:
+        return False
+    return all(_is_safe_identifier(part) for part in parts)
+
+
 def _table_candidates(table_name: str) -> list[str]:
     if "." not in table_name:
         return [table_name]
@@ -68,6 +75,9 @@ def _table_candidates(table_name: str) -> list[str]:
 
 def _safe_execute_count(db: Session, queries: list[str]) -> int:
     for sql_query in queries:
+        table_tokens = re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.]*)", sql_query, flags=re.IGNORECASE)
+        if not table_tokens or not all(_is_safe_table_identifier(token) for token in table_tokens):
+            continue
         try:
             result = db.execute(text(sql_query)).scalar()
             return int(result or 0)
@@ -78,6 +88,9 @@ def _safe_execute_count(db: Session, queries: list[str]) -> int:
 
 def _fetch_rows_with_fallback(db: Session, queries: list[str]) -> list[dict]:
     for sql_query in queries:
+        table_tokens = re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.]*)", sql_query, flags=re.IGNORECASE)
+        if not table_tokens or not all(_is_safe_table_identifier(token) for token in table_tokens):
+            continue
         try:
             return [dict(row) for row in db.execute(text(sql_query)).mappings().all()]
         except Exception:
@@ -87,6 +100,8 @@ def _fetch_rows_with_fallback(db: Session, queries: list[str]) -> list[dict]:
 
 def _clear_table_with_fallback(db: Session, table_name: str) -> bool:
     for candidate in _table_candidates(table_name):
+        if not _is_safe_table_identifier(candidate):
+            continue
         try:
             db.execute(text(f"DELETE FROM {candidate}"))
             return True
@@ -107,6 +122,8 @@ def _insert_row_with_fallback(db: Session, table_name: str, row: dict) -> bool:
     safe_row = {column: row.get(column) for column in columns}
     placeholders = ", ".join([f":{column}" for column in columns])
     for candidate in _table_candidates(table_name):
+        if not _is_safe_table_identifier(candidate):
+            continue
         sql = f"INSERT INTO {candidate} ({', '.join(columns)}) VALUES ({placeholders})"
         try:
             db.execute(text(sql), safe_row)

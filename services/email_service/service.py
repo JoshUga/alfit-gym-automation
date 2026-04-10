@@ -2,7 +2,7 @@
 
 import logging
 import os
-import hashlib
+import secrets
 from datetime import datetime, timezone
 import httpx
 from sqlalchemy import or_
@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 EMAILENGINE_BASE_URL = os.getenv("EMAILENGINE_BASE_URL", "").rstrip("/")
 EMAILENGINE_API_TOKEN = os.getenv("EMAILENGINE_API_TOKEN", "").strip()
 _RUNTIME_EMAILENGINE_API_TOKEN = ""
-SMTP_SEED_DELIMITER = "|"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -37,18 +36,14 @@ def _current_emailengine_api_token() -> str:
         return EMAILENGINE_API_TOKEN
     if _RUNTIME_EMAILENGINE_API_TOKEN:
         return _RUNTIME_EMAILENGINE_API_TOKEN
-    smtp_seed = SMTP_SEED_DELIMITER.join([
-        os.getenv("SMTP_HOST", "").strip(),
-        os.getenv("SMTP_USERNAME", "").strip(),
-        os.getenv("SMTP_PASSWORD", "").strip(),
-        os.getenv("SMTP_FROM_EMAIL", "").strip(),
-        os.getenv("SMTP_FROM_NAME", "").strip(),
-    ])
-    if not smtp_seed.strip(SMTP_SEED_DELIMITER):
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    if not smtp_host or not smtp_username or not smtp_password:
         return ""
-    _RUNTIME_EMAILENGINE_API_TOKEN = hashlib.sha256(smtp_seed.encode("utf-8")).hexdigest()
+    _RUNTIME_EMAILENGINE_API_TOKEN = secrets.token_hex(32)
     logger.warning(
-        "EMAILENGINE_API_TOKEN is not configured; generated a deterministic runtime token from SMTP bootstrap variables."
+        "EMAILENGINE_API_TOKEN is not configured; generated a secure runtime token for SMTP bootstrap."
     )
     return _RUNTIME_EMAILENGINE_API_TOKEN
 

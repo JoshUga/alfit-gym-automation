@@ -68,6 +68,7 @@ def service_dashboard():
               <input id="backup-label" placeholder="Backup label (optional)" />
               <button onclick="backup()">Create Backup</button>
               <label><input id="purge-backups" type="checkbox" /> Include backups in purge</label>
+              <label><input id="purge-confirm" type="checkbox" /> I understand purge is destructive</label>
               <button class="danger" onclick="purgeData()">Delete All Managed Data</button>
             </div>
             <div class="muted">Tip: create a backup before purge so you can restore later.</div>
@@ -86,7 +87,11 @@ def service_dashboard():
         <script>
           let headers = null;
           let allGyms = [];
-          const esc = (v) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+          const esc = (v) => {{
+            const node = document.createElement('span');
+            node.textContent = String(v ?? '');
+            return node.innerHTML;
+          }};
           function setMsg(t) {{ document.getElementById('msg').textContent = t; }}
           async function api(path, opts={{}}) {{
             const r = await fetch(path, {{...opts, headers: {{'Content-Type':'application/json', ...(headers||{{}}), ...(opts.headers||{{}})}}}});
@@ -162,7 +167,10 @@ def service_dashboard():
             }}
           }}
           async function purgeData() {{
-            if (!confirm('Delete all managed data? This cannot be undone without restoring a backup.')) return;
+            if (!document.getElementById('purge-confirm').checked) {{
+              setMsg('Please confirm destructive purge first');
+              return;
+            }}
             const includeBackups = !!document.getElementById('purge-backups').checked;
             try {{
               const res = await api('/api/v1/admin/service/data/purge', {{method:'POST', body: JSON.stringify({{include_backups: includeBackups}})}});
