@@ -3,6 +3,7 @@ import { UserPlus, Edit, Trash2, CreditCard } from 'lucide-react';
 import DataTable from '../components/DataTable';
 import Drawer from '../components/Drawer';
 import { gymService, memberService, attendanceService, workoutService } from '../services/api';
+import { useAuthStore } from '../stores/authStore';
 
 interface Member {
   id: number;
@@ -278,6 +279,8 @@ function MemberForm({
 }
 
 export default function MembersPage() {
+  const user = useAuthStore((state) => state.user);
+  const isTrainer = user?.role === 'gym_staff';
   const [members, setMembers] = useState<Member[]>([]);
   const [gymId, setGymId] = useState<number | null>(() => {
     const savedGymId = localStorage.getItem('active_gym_id');
@@ -754,45 +757,47 @@ export default function MembersPage() {
       label: 'Monthly Fee',
       render: (m: Member) => <span className="text-xs text-gray-600">{m.monthly_payment_amount ? `${gymCurrency} ${m.monthly_payment_amount}` : '—'}</span>,
     },
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (m: Member) => (
-        <div className="flex gap-2">
-          <button
-            className="p-1 hover:text-emerald-500"
-            onClick={(e) => {
-              e.stopPropagation();
-              void openPaymentDrawer(m);
-            }}
-            title="Manage payments"
-          >
-            <CreditCard size={16} />
-          </button>
-          <button
-            className="p-1 hover:text-primary-600"
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditModal(m);
-            }}
-            title="Edit member"
-          >
-            <Edit size={16} />
-          </button>
-          <button
-            className="p-1 hover:text-red-600"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteConfirm(m.id);
-              setIsDeleteDrawerOpen(true);
-            }}
-            title="Remove member"
-          >
-            <Trash2 size={16} />
-          </button>
-        </div>
-      ),
-    },
+    ...(!isTrainer
+      ? [{
+          key: 'actions',
+          label: 'Actions',
+          render: (m: Member) => (
+            <div className="flex gap-2">
+              <button
+                className="p-1 hover:text-emerald-500"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void openPaymentDrawer(m);
+                }}
+                title="Manage payments"
+              >
+                <CreditCard size={16} />
+              </button>
+              <button
+                className="p-1 hover:text-primary-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEditModal(m);
+                }}
+                title="Edit member"
+              >
+                <Edit size={16} />
+              </button>
+              <button
+                className="p-1 hover:text-red-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteConfirm(m.id);
+                  setIsDeleteDrawerOpen(true);
+                }}
+                title="Remove member"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ),
+        }]
+      : []),
   ];
 
   return (
@@ -803,6 +808,7 @@ export default function MembersPage() {
           onClick={() => setIsAddDrawerOpen(true)}
           className="inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50"
           disabled={!gymId || loading}
+          hidden={isTrainer}
         >
           <UserPlus size={18} />
           Add Member
@@ -954,24 +960,26 @@ export default function MembersPage() {
                         <span className="font-semibold">{Number(dateIso.slice(-2))}</span>
                         <span className="uppercase text-[10px]">{status}</span>
                       </div>
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          className="flex-1 border border-emerald-500/60 px-1 py-0.5 text-[10px] text-emerald-200 disabled:opacity-50"
-                          disabled={isSaving}
-                          onClick={() => void handleMarkAttendance(dateIso, 'present')}
-                        >
-                          P
-                        </button>
-                        <button
-                          type="button"
-                          className="flex-1 border border-red-500/60 px-1 py-0.5 text-[10px] text-red-200 disabled:opacity-50"
-                          disabled={isSaving}
-                          onClick={() => void handleMarkAttendance(dateIso, 'absent')}
-                        >
-                          A
-                        </button>
-                      </div>
+                      {!isTrainer && (
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            className="flex-1 border border-emerald-500/60 px-1 py-0.5 text-[10px] text-emerald-200 disabled:opacity-50"
+                            disabled={isSaving}
+                            onClick={() => void handleMarkAttendance(dateIso, 'present')}
+                          >
+                            P
+                          </button>
+                          <button
+                            type="button"
+                            className="flex-1 border border-red-500/60 px-1 py-0.5 text-[10px] text-red-200 disabled:opacity-50"
+                            disabled={isSaving}
+                            onClick={() => void handleMarkAttendance(dateIso, 'absent')}
+                          >
+                            A
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -993,19 +1001,21 @@ export default function MembersPage() {
             <div className="border border-slate-800 bg-slate-900/50 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-slate-100">Workout Plan</h3>
-                <div className="flex items-center gap-2">
-                  <button type="button" className="btn-primary" onClick={() => void handleGenerateWorkoutPlan()} disabled={generatingWorkoutPlan}>
-                    {generatingWorkoutPlan ? 'Generating...' : 'Regenerate with AI'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={!workoutPlan || savingWorkoutPlan}
-                    onClick={() => void handleSaveWorkoutPlan()}
-                  >
-                    {savingWorkoutPlan ? 'Saving...' : 'Save XML'}
-                  </button>
-                </div>
+                {!isTrainer && (
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="btn-primary" onClick={() => void handleGenerateWorkoutPlan()} disabled={generatingWorkoutPlan}>
+                      {generatingWorkoutPlan ? 'Generating...' : 'Regenerate with AI'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={!workoutPlan || savingWorkoutPlan}
+                      onClick={() => void handleSaveWorkoutPlan()}
+                    >
+                      {savingWorkoutPlan ? 'Saving...' : 'Save XML'}
+                    </button>
+                  </div>
+                )}
               </div>
               {workoutPlan ? (
                 <>
@@ -1019,6 +1029,7 @@ export default function MembersPage() {
                     value={workoutXmlDraft}
                     onChange={(e) => setWorkoutXmlDraft(e.target.value)}
                     placeholder="<workout_plan>...</workout_plan>"
+                    readOnly={isTrainer}
                   />
                   {parsedWorkoutWeeks.length > 0 ? (
                     <div className="mt-4 space-y-3">

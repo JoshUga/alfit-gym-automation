@@ -9,6 +9,7 @@ from services.member_service.models import (
     Member,
     MemberGroup,
     MemberGroupAssignment,
+    MemberTrainerAssignment,
     MemberStatus,
     MemberPayment,
     MemberPaymentStatus,
@@ -22,6 +23,7 @@ from services.member_service.schemas import (
     GroupResponse,
     MemberPaymentCreate,
     MemberPaymentResponse,
+    TrainerAssignmentResponse,
 )
 
 
@@ -97,6 +99,7 @@ def _member_to_response(member: Member) -> MemberResponse:
         training_days=training_days,
         target=member.target,
         monthly_payment_amount=member.monthly_payment_amount,
+        trainer_user_ids=[assignment.trainer_user_id for assignment in (member.trainer_assignments or [])],
         weekly_schedule=weekly_schedule,
         created_at=member.created_at,
     )
@@ -132,6 +135,22 @@ def list_gym_members(db: Session, gym_id: int) -> list[MemberResponse]:
     """List all members for a gym."""
     members = db.query(Member).filter(Member.gym_id == gym_id).all()
     return [_member_to_response(m) for m in members]
+
+
+def list_trainer_members(db: Session, gym_id: int, trainer_user_id: int) -> list[MemberResponse]:
+    members = (
+        db.query(Member)
+        .join(
+            MemberTrainerAssignment,
+            MemberTrainerAssignment.member_id == Member.id,
+        )
+        .filter(
+            Member.gym_id == gym_id,
+            MemberTrainerAssignment.trainer_user_id == trainer_user_id,
+        )
+        .all()
+    )
+    return [_member_to_response(member) for member in members]
 
 
 def update_member(db: Session, member_id: int, data: MemberUpdate) -> MemberResponse:
@@ -304,3 +323,65 @@ def create_member_payment(
     db.commit()
     db.refresh(payment)
     return MemberPaymentResponse.model_validate(payment)
+
+
+def list_trainer_assignments(
+    db: Session,
+    gym_id: int,
+    trainer_user_id: int | None = None,
+) -> list[TrainerAssignmentResponse]:
+    query = (
+        db.query(MemberTrainerAssignment)
+        .join(Member, MemberTrainerAssignment.member_id == Member.id)
+        .filter(Member.gym_id == gym_id)
+    )
+    if trainer_user_id is not None:
+        query = query.filter(MemberTrainerAssignment.trainer_user_id == trainer_user_id)
+    assignments = query.order_by(MemberTrainerAssignment.id.desc()).all()
+    return [TrainerAssignmentResponse.model_validate(assignment) for assignment in assignments]
+
+
+def assign_trainer_to_member(
+    db: Session,
+    member_id: int,
+    trainer_user_id: int,
+) -> TrainerAssignmentResponse:
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise NotFoundException("Member", member_id)
+
+    existing = (
+        db.query(MemberTrainerAssignment)
+        .filter(
+            MemberTrainerAssignment.member_id == member_id,
+            MemberTrainerAssignment.trainer_user_id == trainer_user_id,
+        )
+        .first()
+    )
+    if existing:
+        return TrainerAssignmentResponse.model_validate(existing)
+
+    assignment = MemberTrainerAssignment(
+        member_id=member_id,
+        trainer_user_id=trainer_user_id,
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return TrainerAssignmentResponse.model_validate(assignment)
+
+
+def remove_trainer_from_member(db: Session, member_id: int, trainer_user_id: int) -> dict:
+    assignment = (
+        db.query(MemberTrainerAssignment)
+        .filter(
+            MemberTrainerAssignment.member_id == member_id,
+            MemberTrainerAssignment.trainer_user_id == trainer_user_id,
+        )
+        .first()
+    )
+    if not assignment:
+        raise NotFoundException("MemberTrainerAssignment", f"{member_id}/{trainer_user_id}")
+    db.delete(assignment)
+    db.commit()
+    return {"message": "Trainer removed from member successfully"}

@@ -21,10 +21,17 @@ class UserResponse(BaseModel):
     email: str
     full_name: Optional[str] = None
     role: str
+    owner_id: Optional[int] = None
     is_active: bool
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class TrainerCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    full_name: Optional[str] = None
 
 
 class TokenResponse(BaseModel):

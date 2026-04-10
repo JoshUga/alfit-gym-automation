@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from shared.database import get_db
-from shared.auth import get_current_user, UserClaims
+from shared.auth import get_current_user, require_roles, UserClaims
 from shared.models import APIResponse
 from services.auth_service.schemas import (
     UserRegister,
@@ -12,6 +12,7 @@ from services.auth_service.schemas import (
     TokenRefreshRequest,
     UserResponse,
     ChangePasswordRequest,
+    TrainerCreate,
 )
 from services.auth_service import service
 
@@ -65,3 +66,24 @@ def change_password(
         db, current_user.user_id, request.old_password, request.new_password
     )
     return APIResponse(message=result["message"])
+
+
+@router.post("/trainers", response_model=APIResponse[UserResponse])
+def create_trainer(
+    data: TrainerCreate,
+    current_user: UserClaims = Depends(require_roles("gym_owner")),
+    db: Session = Depends(get_session),
+):
+    """Create a trainer account under the authenticated owner."""
+    result = service.create_trainer_user(db, current_user.user_id, data)
+    return APIResponse(data=result, message="Trainer created successfully")
+
+
+@router.get("/trainers", response_model=APIResponse[list[UserResponse]])
+def list_trainers(
+    current_user: UserClaims = Depends(require_roles("gym_owner")),
+    db: Session = Depends(get_session),
+):
+    """List trainers created by the authenticated owner."""
+    result = service.list_trainers_by_owner(db, current_user.user_id)
+    return APIResponse(data=result)

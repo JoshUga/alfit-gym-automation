@@ -12,9 +12,11 @@ import NotificationsPage from './pages/NotificationsPage';
 import SettingsPage from './pages/SettingsPage';
 import MessagesPage from './pages/MessagesPage';
 import AttendancePage from './pages/AttendancePage';
+import StaffPage from './pages/StaffPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
 import DataRemovalPage from './pages/DataRemovalPage';
+import { authService } from './services/api';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -24,11 +26,28 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const isDark = useThemeStore((state) => state.isDark);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore((state) => state.user);
+  const setUser = useAuthStore((state) => state.setUser);
+  const logout = useAuthStore((state) => state.logout);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
   }, [isDark]);
+
+  useEffect(() => {
+    const loadCurrentUser = async () => {
+      if (!isAuthenticated || user) return;
+      try {
+        const meRes = await authService.getMe();
+        setUser(meRes.data.data);
+      } catch {
+        logout();
+      }
+    };
+    void loadCurrentUser();
+  }, [isAuthenticated, user, setUser, logout]);
 
   return (
     <Routes>
@@ -49,6 +68,7 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="members" element={<MembersPage />} />
         <Route path="attendance" element={<AttendancePage />} />
+        <Route path="staff" element={<StaffPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="messages" element={<MessagesPage />} />
         <Route path="settings" element={<SettingsPage />} />

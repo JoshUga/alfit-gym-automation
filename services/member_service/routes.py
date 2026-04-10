@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from shared.database import get_db
 from shared.auth import get_current_user, UserClaims
+from shared.exceptions import ForbiddenException, NotFoundException
 from shared.models import APIResponse
 from services.member_service.schemas import (
     MemberCreate,
@@ -16,6 +17,8 @@ from services.member_service.schemas import (
     GroupResponse,
     MemberPaymentCreate,
     MemberPaymentResponse,
+    TrainerAssignmentCreate,
+    TrainerAssignmentResponse,
 )
 from services.member_service import service
 
@@ -225,6 +228,8 @@ def get_member(
 ):
     """Get a member by ID."""
     result = service.get_member(db, member_id)
+    if "gym_staff" in current_user.roles and current_user.user_id not in result.trainer_user_ids:
+        raise NotFoundException("Member", member_id)
     return APIResponse(data=result)
 
 
@@ -235,7 +240,10 @@ def list_gym_members(
     db: Session = Depends(get_session),
 ):
     """List all members for a gym."""
-    result = service.list_gym_members(db, gym_id)
+    if "gym_staff" in current_user.roles:
+        result = service.list_trainer_members(db, gym_id, current_user.user_id)
+    else:
+        result = service.list_gym_members(db, gym_id)
     return APIResponse(data=result)
 
 
@@ -330,3 +338,54 @@ def create_member_payment(
     """Create a payment for a member."""
     result = service.create_member_payment(db, member_id, data)
     return APIResponse(data=result, message="Payment recorded successfully")
+
+
+@router.get(
+    "/gyms/{gym_id}/trainer-assignments",
+    response_model=APIResponse[list[TrainerAssignmentResponse]],
+)
+def list_trainer_assignments(
+    gym_id: int,
+    trainer_user_id: int | None = None,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """List trainer assignments for a gym."""
+    if "gym_staff" in current_user.roles:
+        trainer_user_id = current_user.user_id
+    result = service.list_trainer_assignments(db, gym_id, trainer_user_id)
+    return APIResponse(data=result)
+
+
+@router.post(
+    "/members/{member_id}/trainer-assignments",
+    response_model=APIResponse[TrainerAssignmentResponse],
+)
+def assign_trainer_to_member(
+    member_id: int,
+    data: TrainerAssignmentCreate,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Assign a trainer to a member."""
+    if "gym_owner" not in current_user.roles:
+        raise ForbiddenException("Only gym owners can assign trainers")
+    result = service.assign_trainer_to_member(db, member_id, data.trainer_user_id)
+    return APIResponse(data=result, message="Trainer assigned successfully")
+
+
+@router.delete(
+    "/members/{member_id}/trainer-assignments/{trainer_user_id}",
+    response_model=APIResponse,
+)
+def remove_trainer_from_member(
+    member_id: int,
+    trainer_user_id: int,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Remove trainer assignment from a member."""
+    if "gym_owner" not in current_user.roles:
+        raise ForbiddenException("Only gym owners can remove trainer assignments")
+    result = service.remove_trainer_from_member(db, member_id, trainer_user_id)
+    return APIResponse(message=result["message"])

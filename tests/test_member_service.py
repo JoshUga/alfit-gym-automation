@@ -9,7 +9,13 @@ from shared.database import Base
 from shared.auth import create_access_token
 from services.member_service.main import app
 from services.member_service.routes import get_session
-from services.member_service.models import Member, MemberGroup, MemberGroupAssignment, MemberStatus
+from services.member_service.models import (
+    Member,
+    MemberGroup,
+    MemberGroupAssignment,
+    MemberTrainerAssignment,
+    MemberStatus,
+)
 
 
 @pytest.fixture
@@ -273,3 +279,46 @@ class TestMemberPayments:
         response = client.get(f"/api/v1/members/{member.id}/payments", headers=auth_headers)
         assert response.status_code == 200
         assert len(response.json()["data"]) == 1
+
+
+class TestTrainerAssignments:
+    def test_assign_and_list_trainer_assignments(self, client, db, auth_headers):
+        member = Member(gym_id=1, name="Assigned Member", phone_number="+6666666666", status=MemberStatus.ACTIVE)
+        db.add(member)
+        db.commit()
+        db.refresh(member)
+
+        assign_response = client.post(
+            f"/api/v1/members/{member.id}/trainer-assignments",
+            json={"trainer_user_id": 42},
+            headers=auth_headers,
+        )
+        assert assign_response.status_code == 200
+        assert assign_response.json()["data"]["trainer_user_id"] == 42
+
+        list_response = client.get("/api/v1/gyms/1/trainer-assignments", headers=auth_headers)
+        assert list_response.status_code == 200
+        assert len(list_response.json()["data"]) == 1
+
+    def test_trainer_only_sees_assigned_members(self, client, db):
+        member_a = Member(gym_id=1, name="Assigned", phone_number="+7777000000", status=MemberStatus.ACTIVE)
+        member_b = Member(gym_id=1, name="Unassigned", phone_number="+7777000001", status=MemberStatus.ACTIVE)
+        db.add(member_a)
+        db.add(member_b)
+        db.commit()
+        db.refresh(member_a)
+        db.refresh(member_b)
+
+        db.add(MemberTrainerAssignment(member_id=member_a.id, trainer_user_id=99))
+        db.commit()
+
+        trainer_token = create_access_token(
+            {"sub": "99", "email": "trainer@example.com", "roles": ["gym_staff"], "owner_id": 1}
+        )
+        trainer_headers = {"Authorization": f"Bearer {trainer_token}"}
+
+        list_response = client.get("/api/v1/gyms/1/members", headers=trainer_headers)
+        assert list_response.status_code == 200
+        payload = list_response.json()["data"]
+        assert len(payload) == 1
+        assert payload[0]["name"] == "Assigned"

@@ -16,21 +16,24 @@ import {
   X,
   Search,
   Sparkles,
+  UserCog,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 const navItems = [
-  { path: '/app', label: 'Dashboard', icon: Home },
-  { path: '/app/members', label: 'Members', icon: Users },
-  { path: '/app/attendance', label: 'Attendance', icon: CalendarDays },
-  { path: '/app/notifications', label: 'Notifications', icon: Bell },
-  { path: '/app/messages', label: 'Messages', icon: MessageSquare },
-  { path: '/app/settings', label: 'Settings', icon: Settings },
+  { path: '/app', label: 'Dashboard', icon: Home, roles: ['gym_owner', 'gym_staff'] },
+  { path: '/app/members', label: 'Members', icon: Users, roles: ['gym_owner', 'gym_staff'] },
+  { path: '/app/attendance', label: 'Attendance', icon: CalendarDays, roles: ['gym_owner', 'gym_staff'] },
+  { path: '/app/staff', label: 'Staff', icon: UserCog, roles: ['gym_owner'] },
+  { path: '/app/notifications', label: 'Notifications', icon: Bell, roles: ['gym_owner'] },
+  { path: '/app/messages', label: 'Messages', icon: MessageSquare, roles: ['gym_owner'] },
+  { path: '/app/settings', label: 'Settings', icon: Settings, roles: ['gym_owner'] },
 ];
 
 export default function Layout() {
   const location = useLocation();
   const logout = useAuthStore((state) => state.logout);
+  const user = useAuthStore((state) => state.user);
   const { isDark, toggle } = useThemeStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -49,16 +52,22 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', handleKeydown);
   }, []);
 
+  const visibleNavItems = useMemo(
+    () => navItems.filter((item) => !user?.role || item.roles.includes(user.role)),
+    [user?.role]
+  );
+
   const pageTitle = useMemo(() => {
-    const active = navItems.find((item) => item.path === location.pathname);
+    const active = visibleNavItems.find((item) => item.path === location.pathname);
     if (active) return active.label;
     if (location.pathname.startsWith('/app/members')) return 'Members';
     if (location.pathname.startsWith('/app/attendance')) return 'Attendance';
+    if (location.pathname.startsWith('/app/staff')) return 'Staff';
     if (location.pathname.startsWith('/app/notifications')) return 'Notifications';
     if (location.pathname.startsWith('/app/messages')) return 'Messages';
     if (location.pathname.startsWith('/app/settings')) return 'Settings';
     return 'Dashboard';
-  }, [location.pathname]);
+  }, [location.pathname, visibleNavItems]);
 
   return (
     <div className={`min-h-screen lg:flex ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
@@ -92,7 +101,7 @@ export default function Layout() {
         </div>
 
         <nav className="space-y-1.5 p-4">
-          {navItems.map(({ path, label, icon: Icon }) => (
+          {visibleNavItems.map(({ path, label, icon: Icon }) => (
             <Link
               key={path}
               to={path}

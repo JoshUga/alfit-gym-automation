@@ -1,6 +1,6 @@
 """Member Service Pydantic schemas."""
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -47,6 +47,7 @@ class MemberResponse(BaseModel):
     training_days: Optional[list[str]] = None
     target: Optional[str] = None
     monthly_payment_amount: Optional[int] = None
+    trainer_user_ids: list[int] = Field(default_factory=list)
     weekly_schedule: Optional[list[ScheduleEntry]] = None
     created_at: Optional[datetime] = None
 
@@ -90,6 +91,19 @@ class MemberPaymentResponse(BaseModel):
     balance_left: Optional[int] = None
     paid_at: Optional[datetime] = None
     note: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TrainerAssignmentCreate(BaseModel):
+    trainer_user_id: int
+
+
+class TrainerAssignmentResponse(BaseModel):
+    id: int
+    member_id: int
+    trainer_user_id: int
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

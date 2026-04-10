@@ -21,6 +21,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=True)
     full_name = Column(String(255), nullable=True)
     role = Column(SQLEnum(UserRole), default=UserRole.GYM_OWNER, nullable=False)
+    parent_owner_id = Column(Integer, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
     google_id = Column(String(255), unique=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

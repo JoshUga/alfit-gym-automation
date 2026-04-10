@@ -45,6 +45,9 @@ export const authService = {
   login: (data: { email: string; password: string }) =>
     api.post('/auth/login', data),
   getMe: () => api.get('/auth/me'),
+  listTrainers: () => api.get('/auth/trainers'),
+  createTrainer: (data: { email: string; password: string; full_name?: string }) =>
+    api.post('/auth/trainers', data),
 };
 
 export const gymService = {
@@ -103,6 +106,11 @@ export const memberService = {
       paid_at?: string;
     }
   ) => api.post(`/members/${id}/payments`, data),
+  listTrainerAssignments: (gymId: number) => api.get(`/gyms/${gymId}/trainer-assignments`),
+  assignTrainer: (memberId: number, trainerUserId: number) =>
+    api.post(`/members/${memberId}/trainer-assignments`, { trainer_user_id: trainerUserId }),
+  removeTrainer: (memberId: number, trainerUserId: number) =>
+    api.delete(`/members/${memberId}/trainer-assignments/${trainerUserId}`),
 };
 
 export const notificationService = {
