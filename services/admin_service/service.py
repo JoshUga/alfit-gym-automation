@@ -2,6 +2,7 @@
 
 import logging
 import os
+import secrets
 from datetime import datetime, timezone
 from fastapi import Header
 from sqlalchemy import text
@@ -49,6 +50,8 @@ BACKUP_TABLES = [
     "alfit_message.processed_messages",
     "alfit_email.email_logs",
 ]
+
+BACKUP_TABLE_SET = set(BACKUP_TABLES)
 
 
 def list_audit_logs(db: Session, limit: int = 100) -> list[AuditLogResponse]:
@@ -98,13 +101,15 @@ def require_service_admin(
     x_admin_username: str | None = Header(default=None, alias="X-Admin-Username"),
     x_admin_password: str | None = Header(default=None, alias="X-Admin-Password"),
 ) -> bool:
-    if x_admin_username != SERVICE_ADMIN_USERNAME or x_admin_password != SERVICE_ADMIN_PASSWORD:
+    username_ok = secrets.compare_digest(str(x_admin_username or ""), SERVICE_ADMIN_USERNAME)
+    password_ok = secrets.compare_digest(str(x_admin_password or ""), SERVICE_ADMIN_PASSWORD)
+    if not username_ok or not password_ok:
         raise ValidationException("Invalid service admin credentials")
     return True
 
 
 def service_admin_login(username: str, password: str) -> bool:
-    return username == SERVICE_ADMIN_USERNAME and password == SERVICE_ADMIN_PASSWORD
+    return secrets.compare_digest(username, SERVICE_ADMIN_USERNAME) and secrets.compare_digest(password, SERVICE_ADMIN_PASSWORD)
 
 
 def _safe_count(db: Session, sql_query: str) -> int:
@@ -189,6 +194,8 @@ def list_system_backups(db: Session, limit: int = 100) -> list[ServiceBackupResp
 
 
 def _restore_table(db: Session, table_name: str, rows: list[dict], clear_existing: bool) -> bool:
+    if table_name not in BACKUP_TABLE_SET:
+        return False
     try:
         if clear_existing:
             db.execute(text(f"DELETE FROM {table_name}"))

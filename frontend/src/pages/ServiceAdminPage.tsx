@@ -1,12 +1,9 @@
 import { useMemo, useState } from 'react';
 import { serviceAdminApi } from '../services/api';
 
-const DEFAULT_ADMIN_USERNAME = 'service-admin';
-const DEFAULT_ADMIN_PASSWORD = 'service-admin-2026';
-
 export default function ServiceAdminPage() {
-  const [username, setUsername] = useState(DEFAULT_ADMIN_USERNAME);
-  const [password, setPassword] = useState(DEFAULT_ADMIN_PASSWORD);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -92,6 +89,7 @@ export default function ServiceAdminPage() {
         {!authenticated ? (
           <div className="max-w-lg rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
             <h2 className="mb-4 text-lg font-semibold">Admin Sign In</h2>
+            <p className="mb-3 text-xs text-slate-400">Use your service-admin credentials configured on the admin service.</p>
             <div className="space-y-3">
               <input
                 className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-4 py-3"
@@ -192,4 +190,3 @@ export default function ServiceAdminPage() {
     </main>
   );
 }
-

@@ -2,7 +2,8 @@
 
 import json
 import os
-from datetime import datetime, timedelta, date, UTC
+import logging
+from datetime import datetime, timedelta, date, timezone
 import httpx
 from sqlalchemy.orm import Session
 from shared.exceptions import NotFoundException, ValidationException
@@ -26,6 +27,7 @@ from services.attendance_service.models import AttendanceRecord, AttendanceStatu
 
 MESSAGE_SERVICE_URL = os.getenv("MESSAGE_SERVICE_URL", "http://message-service:8000").rstrip("/")
 EMAIL_SERVICE_URL = os.getenv("EMAIL_SERVICE_URL", "http://email-service:8000").rstrip("/")
+logger = logging.getLogger(__name__)
 
 
 def create_template(db: Session, data: TemplateCreate) -> TemplateResponse:
@@ -229,7 +231,8 @@ def _send_whatsapp(gym_id: int, phone_number: str, content: str) -> bool:
                 },
             )
         return response.status_code < 400
-    except Exception:
+    except Exception as exc:
+        logger.warning("WhatsApp reminder send failed for gym %s phone %s: %s", gym_id, phone_number, exc)
         return False
 
 
@@ -248,7 +251,8 @@ def _send_email(gym_id: int, recipient: str, subject: str, reminder_kind: str, c
                 },
             )
         return response.status_code < 400
-    except Exception:
+    except Exception as exc:
+        logger.warning("Email reminder send failed for gym %s recipient %s: %s", gym_id, recipient, exc)
         return False
 
 
@@ -257,7 +261,7 @@ def dispatch_session_reminders(
     gym_id: int,
     run_at: datetime | None = None,
 ) -> SessionReminderDispatchResponse:
-    now = run_at or datetime.now(UTC)
+    now = run_at or datetime.now(timezone.utc)
     today = now.date()
     tomorrow = today + timedelta(days=1)
     today_weekday = _normalize_day_name(today.strftime("%A"))

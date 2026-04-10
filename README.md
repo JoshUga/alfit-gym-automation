@@ -27,6 +27,8 @@ Default service-admin credentials (for bootstrap/demo):
 - Username: `service-admin`
 - Password: `service-admin-2026`
 
+> Important: use HTTPS/TLS when calling service-admin endpoints because credentials are passed in request headers.
+
 Override with environment variables on `admin-service`:
 
 - `SERVICE_ADMIN_USERNAME`

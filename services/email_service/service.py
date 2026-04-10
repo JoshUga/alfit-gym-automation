@@ -2,7 +2,7 @@
 
 import logging
 import os
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 import httpx
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -39,7 +39,7 @@ def _build_emailengine_headers() -> dict:
 
 def _send_via_emailengine(account: SMTPAccount | None, data: SendEmailRequest) -> str:
     if not EMAILENGINE_BASE_URL or not account:
-        return "emailengine-default"
+        return "smtp-unconfigured"
     html_content = preview_email_template(data.template_name, data.template_data).get("html_content", "")
     with httpx.Client(timeout=20.0) as client:
         response = client.post(
@@ -77,7 +77,7 @@ def send_email(db: Session, data: SendEmailRequest) -> EmailLogResponse:
     logger.info("Sending email to %s with template %s", data.recipient, data.template_name)
 
     status = EmailStatus.SENT
-    provider = "emailengine-default"
+    provider = "smtp-unconfigured"
     try:
         provider = _send_via_emailengine(account, data)
     except Exception as exc:
@@ -94,7 +94,7 @@ def send_email(db: Session, data: SendEmailRequest) -> EmailLogResponse:
     db.add(log)
 
     if account:
-        account.last_used_at = datetime.now(UTC)
+        account.last_used_at = datetime.now(timezone.utc)
         if status == EmailStatus.FAILED:
             account.health_status = "unhealthy"
 
@@ -145,7 +145,7 @@ def run_smtp_health_checks(
         query = query.filter(or_(SMTPAccount.gym_id == gym_id, SMTPAccount.gym_id.is_(None)))
     accounts = query.order_by(SMTPAccount.id.asc()).all()
 
-    checked_at = datetime.now(UTC)
+    checked_at = datetime.now(timezone.utc)
     results: list[SMTPHealthCheckResult] = []
     for account in accounts:
         status = _check_smtp_account_health(account)
