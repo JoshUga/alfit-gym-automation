@@ -3,6 +3,7 @@
 import logging
 import os
 import secrets
+import threading
 from datetime import datetime, timezone
 import httpx
 from sqlalchemy import or_
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 EMAILENGINE_BASE_URL = os.getenv("EMAILENGINE_BASE_URL", "").rstrip("/")
 EMAILENGINE_API_TOKEN = os.getenv("EMAILENGINE_API_TOKEN", "").strip()
 _RUNTIME_EMAILENGINE_API_TOKEN = ""
+_RUNTIME_EMAILENGINE_API_TOKEN_LOCK = threading.Lock()
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -36,16 +38,19 @@ def _current_emailengine_api_token() -> str:
         return EMAILENGINE_API_TOKEN
     if _RUNTIME_EMAILENGINE_API_TOKEN:
         return _RUNTIME_EMAILENGINE_API_TOKEN
-    smtp_host = os.getenv("SMTP_HOST", "").strip()
-    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    if not smtp_host or not smtp_username or not smtp_password:
-        return ""
-    _RUNTIME_EMAILENGINE_API_TOKEN = secrets.token_hex(32)
-    logger.warning(
-        "EMAILENGINE_API_TOKEN is not configured; generated a secure runtime token for SMTP bootstrap."
-    )
-    return _RUNTIME_EMAILENGINE_API_TOKEN
+    with _RUNTIME_EMAILENGINE_API_TOKEN_LOCK:
+        if _RUNTIME_EMAILENGINE_API_TOKEN:
+            return _RUNTIME_EMAILENGINE_API_TOKEN
+        smtp_host = os.getenv("SMTP_HOST", "").strip()
+        smtp_username = os.getenv("SMTP_USERNAME", "").strip()
+        smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+        if not smtp_host or not smtp_username or not smtp_password:
+            return ""
+        _RUNTIME_EMAILENGINE_API_TOKEN = secrets.token_hex(32)
+        logger.warning(
+            "EMAILENGINE_API_TOKEN is not configured; generated a secure runtime token for SMTP bootstrap."
+        )
+        return _RUNTIME_EMAILENGINE_API_TOKEN
 
 
 def _pick_next_smtp_account(db: Session, gym_id: int | None) -> SMTPAccount | None:

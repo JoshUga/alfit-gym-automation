@@ -145,4 +145,5 @@ class TestSendEmail:
         account = db.query(SMTPAccount).filter(SMTPAccount.gym_id == 7).first()
         assert account is not None
         assert account.name == "Auto SMTP"
+        # Derived from SMTP_USERNAME by stripping non-alphanumeric characters and prefixing with "bootstrap-".
         assert account.emailengine_account_id == "bootstrap-noreplyexamplecom"

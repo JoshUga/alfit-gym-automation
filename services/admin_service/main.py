@@ -80,7 +80,7 @@ def service_dashboard():
               <span id="gym-summary" class="muted"></span>
             </div>
             <div class="scroll">
-              <table aria-label="Gyms list"><caption class="muted">Registered gyms</caption><thead><tr><th>ID</th><th>Gym</th><th>Email</th><th>Phone</th><th>Members</th><th>Status</th></tr></thead><tbody id="gyms"></tbody></table>
+              <table aria-label="Gyms list"><caption>Registered gyms</caption><thead><tr><th>ID</th><th>Gym</th><th>Email</th><th>Phone</th><th>Members</th><th>Status</th></tr></thead><tbody id="gyms"></tbody></table>
             </div>
           </div>
         </div>
