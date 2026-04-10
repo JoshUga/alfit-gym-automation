@@ -1033,7 +1033,7 @@ export default function MembersPage() {
                   />
                   {isTrainer && (
                     <p className="mt-2 text-xs text-slate-400">
-                      Workout XML is view-only for trainer accounts.
+                      Workout XML is read-only for trainer accounts.
                     </p>
                   )}
                   {parsedWorkoutWeeks.length > 0 ? (

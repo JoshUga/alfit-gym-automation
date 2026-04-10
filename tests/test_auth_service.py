@@ -258,6 +258,9 @@ class TestTrainerManagement:
         assert created["email"] == "trainer@example.com"
         assert created["role"] == "gym_staff"
         assert created["owner_id"] == owner.id
+        created_user = db.query(User).filter(User.email == "trainer@example.com").first()
+        assert created_user is not None
+        assert created_user.parent_owner_id == owner.id
 
         list_response = client.get("/auth/trainers", headers=headers)
         assert list_response.status_code == 200
