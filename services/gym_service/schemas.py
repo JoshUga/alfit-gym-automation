@@ -76,6 +76,8 @@ class WhatsAppConnectResponse(BaseModel):
 class WhatsAppStatusResponse(BaseModel):
     instance_name: str
     status: str
+    qr_code: Optional[str] = None
+    pairing_code: Optional[str] = None
 
 
 class WhatsAppSendWelcomeRequest(BaseModel):
