@@ -51,6 +51,9 @@ describe('RegisterPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Your gym brand'), {
       target: { value: 'My Gym' },
     });
+    fireEvent.change(screen.getByPlaceholderText('Gym email (required)'), {
+      target: { value: 'gym@example.com' },
+    });
     fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
     expect(screen.queryByPlaceholderText(/instance name/i)).not.toBeInTheDocument();

@@ -15,6 +15,7 @@ import AttendancePage from './pages/AttendancePage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
 import DataRemovalPage from './pages/DataRemovalPage';
+import ServiceAdminPage from './pages/ServiceAdminPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -38,6 +39,7 @@ export default function App() {
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       <Route path="/terms-of-service" element={<TermsOfServicePage />} />
       <Route path="/data-removal" element={<DataRemovalPage />} />
+      <Route path="/service-admin" element={<ServiceAdminPage />} />
       <Route
         path="/app"
         element={

@@ -92,6 +92,7 @@ services:
       AI_MODEL: ${AI_MODEL:-qwen2.5:0.5b}
       AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-tinyllama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      EMAIL_SERVICE_URL: http://email-service:8000
     depends_on:
       mysql:
         condition: service_healthy
@@ -122,6 +123,17 @@ services:
     volumes:
       - evolution_instances:/evolution/instances
       - evolution_store:/evolution/store
+    networks:
+      - alfit-network
+
+  emailengine:
+    image: postalsys/emailengine:latest
+    ports:
+      - "3000:3000"
+    environment:
+      EENGINE_PORT: 3000
+      EENGINE_HOST: 0.0.0.0
+      EENGINE_API_PROXY: "false"
     networks:
       - alfit-network
 
@@ -260,6 +272,8 @@ services:
       MYSQL_DATABASE: alfit_admin
       REDIS_HOST: redis
       JWT_SECRET_KEY: your-production-secret-key
+      SERVICE_ADMIN_USERNAME: ${SERVICE_ADMIN_USERNAME:-service-admin}
+      SERVICE_ADMIN_PASSWORD: ${SERVICE_ADMIN_PASSWORD:-service-admin-2026}
     depends_on:
       mysql:
         condition: service_healthy
@@ -293,6 +307,8 @@ services:
       MYSQL_DATABASE: alfit_email
       RABBITMQ_HOST: rabbitmq
       JWT_SECRET_KEY: your-production-secret-key
+      EMAILENGINE_BASE_URL: ${EMAILENGINE_BASE_URL:-http://emailengine:3000}
+      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
     depends_on:
       mysql:
         condition: service_healthy

@@ -9,7 +9,7 @@ class GymCreate(BaseModel):
     name: str
     address: Optional[str] = None
     phone: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: EmailStr
 
 
 class GymUpdate(BaseModel):
@@ -105,3 +105,5 @@ class WhatsAppOnboardingWelcomeResponse(BaseModel):
     reason: Optional[str] = None
     provider: Optional[str] = None
     model: Optional[str] = None
+    email_status: Optional[str] = None
+    email_reason: Optional[str] = None

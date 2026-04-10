@@ -10,6 +10,14 @@ from services.admin_service.schemas import (
     SystemHealthResponse,
     UserRoleUpdate,
     GymStatusUpdate,
+    ServiceAdminLoginRequest,
+    ServiceAdminLoginResponse,
+    ServiceAdminOverviewResponse,
+    ServiceAdminGymItem,
+    ServiceBackupCreateRequest,
+    ServiceBackupResponse,
+    ServiceBackupRestoreRequest,
+    ServiceBackupRestoreResponse,
 )
 from services.admin_service import service
 
@@ -98,3 +106,69 @@ def get_audit_logs(
     """Get audit logs."""
     result = service.list_audit_logs(db, limit)
     return APIResponse(data=result)
+
+
+@router.post("/admin/service/login", response_model=APIResponse[ServiceAdminLoginResponse])
+def service_admin_login(data: ServiceAdminLoginRequest):
+    """Login endpoint for service-admin dashboard using hardcoded credentials."""
+    authenticated = service.service_admin_login(data.username, data.password)
+    if not authenticated:
+        return APIResponse(success=False, message="Invalid credentials", data=ServiceAdminLoginResponse(authenticated=False))
+    return APIResponse(data=ServiceAdminLoginResponse(authenticated=True), message="Authenticated")
+
+
+@router.get("/admin/service/overview", response_model=APIResponse[ServiceAdminOverviewResponse])
+def service_admin_overview(
+    _: bool = Depends(service.require_service_admin),
+    db: Session = Depends(get_session),
+):
+    """Get aggregated system overview for service-admin dashboard."""
+    result = service.get_service_admin_overview(db)
+    return APIResponse(data=result)
+
+
+@router.get("/admin/service/gyms", response_model=APIResponse[list[ServiceAdminGymItem]])
+def service_admin_gyms(
+    _: bool = Depends(service.require_service_admin),
+    db: Session = Depends(get_session),
+):
+    """List gyms with member counts for service-admin dashboard."""
+    result = service.list_service_admin_gyms(db)
+    return APIResponse(data=result)
+
+
+@router.post("/admin/service/backups", response_model=APIResponse[ServiceBackupResponse])
+def service_admin_create_backup(
+    data: ServiceBackupCreateRequest,
+    _: bool = Depends(service.require_service_admin),
+    db: Session = Depends(get_session),
+):
+    """Create full-system backup snapshot."""
+    result = service.create_system_backup(db, data.label)
+    return APIResponse(data=result, message="Backup created")
+
+
+@router.get("/admin/service/backups", response_model=APIResponse[list[ServiceBackupResponse]])
+def service_admin_list_backups(
+    limit: int = Query(100, ge=1, le=1000),
+    _: bool = Depends(service.require_service_admin),
+    db: Session = Depends(get_session),
+):
+    """List created system backups."""
+    result = service.list_system_backups(db, limit)
+    return APIResponse(data=result)
+
+
+@router.post(
+    "/admin/service/backups/{backup_id}/restore",
+    response_model=APIResponse[ServiceBackupRestoreResponse],
+)
+def service_admin_restore_backup(
+    backup_id: int,
+    data: ServiceBackupRestoreRequest,
+    _: bool = Depends(service.require_service_admin),
+    db: Session = Depends(get_session),
+):
+    """Restore a full-system backup snapshot."""
+    result = service.restore_system_backup(db, backup_id, clear_existing=data.clear_existing)
+    return APIResponse(data=result, message="Backup restored")

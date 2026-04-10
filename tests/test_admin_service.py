@@ -56,3 +56,43 @@ class TestSystemHealth:
         assert response.status_code == 200
         data = response.json()["data"]
         assert "services" in data
+
+
+class TestServiceAdminDashboard:
+    def test_service_admin_login(self, client):
+        response = client.post(
+            "/api/v1/admin/service/login",
+            json={"username": "service-admin", "password": "service-admin-2026"},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["authenticated"] is True
+
+    def test_service_admin_overview_with_headers(self, client):
+        response = client.get(
+            "/api/v1/admin/service/overview",
+            headers={
+                "X-Admin-Username": "service-admin",
+                "X-Admin-Password": "service-admin-2026",
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()["data"]
+        assert "total_gyms" in payload
+        assert "total_members" in payload
+
+    def test_service_backup_create_and_list(self, client):
+        headers = {
+            "X-Admin-Username": "service-admin",
+            "X-Admin-Password": "service-admin-2026",
+        }
+        created = client.post(
+            "/api/v1/admin/service/backups",
+            json={"label": "test-backup"},
+            headers=headers,
+        )
+        assert created.status_code == 200
+        assert created.json()["data"]["status"] == "completed"
+
+        listed = client.get("/api/v1/admin/service/backups", headers=headers)
+        assert listed.status_code == 200
+        assert len(listed.json()["data"]) >= 1

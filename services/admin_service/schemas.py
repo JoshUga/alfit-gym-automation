@@ -33,3 +33,54 @@ class UserRoleUpdate(BaseModel):
 
 class GymStatusUpdate(BaseModel):
     is_active: bool
+
+
+class ServiceAdminLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ServiceAdminLoginResponse(BaseModel):
+    authenticated: bool
+
+
+class ServiceAdminOverviewResponse(BaseModel):
+    total_gyms: int
+    active_gyms: int
+    total_members: int
+    active_members: int
+    total_attendance_records: int
+    total_scheduled_notifications: int
+    total_processed_messages: int
+    total_email_logs: int
+
+
+class ServiceAdminGymItem(BaseModel):
+    id: int
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    is_active: bool
+    member_count: int = 0
+
+
+class ServiceBackupCreateRequest(BaseModel):
+    label: Optional[str] = None
+
+
+class ServiceBackupResponse(BaseModel):
+    id: int
+    label: Optional[str] = None
+    status: str
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ServiceBackupRestoreRequest(BaseModel):
+    clear_existing: bool = False
+
+
+class ServiceBackupRestoreResponse(BaseModel):
+    backup_id: int
+    restored_tables: int

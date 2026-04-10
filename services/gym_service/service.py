@@ -28,6 +28,7 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 AI_MODEL = os.getenv("AI_MODEL", "qwen2.5:0.5b").strip()
 AI_FALLBACK_MODEL = os.getenv("AI_FALLBACK_MODEL", "tinyllama").strip()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+EMAIL_SERVICE_URL = os.getenv("EMAIL_SERVICE_URL", "http://email-service:8000").rstrip("/")
 EVOLUTION_UPSERT_WEBHOOK_URL = os.getenv(
     "EVOLUTION_UPSERT_WEBHOOK_URL",
     "http://message-service:8000/api/v1/messages/evolution-upsert",
@@ -726,6 +727,29 @@ def send_onboarding_self_message(
     ai_copy = _generate_ai_onboarding_copy(gym.name, owner_name)
     payload = {"number": phone_number, "text": ai_copy["text"]}
 
+    def _send_onboarding_email() -> tuple[str, str | None]:
+        if not gym.email:
+            return "skipped", "gym_email_missing"
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post(
+                    f"{EMAIL_SERVICE_URL}/api/v1/email/send/internal",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "gym_id": gym_id,
+                        "recipient": gym.email,
+                        "subject": f"Welcome to Alfit, {gym.name}",
+                        "template_name": "onboarding_welcome",
+                        "template_data": {"content": ai_copy["text"], "owner_name": owner_name or ""},
+                    },
+                )
+            if response.status_code >= 400:
+                return "failed", f"email_http_{response.status_code}"
+            return "sent", None
+        except Exception as exc:
+            logger.warning("Onboarding email send failed for gym %s: %s", gym_id, exc)
+            return "error", str(exc)
+
     # Atomic claim to prevent duplicate sends when multiple pollers hit this endpoint.
     claimed = (
         db.query(Gym)
@@ -762,12 +786,17 @@ def send_onboarding_self_message(
                 "reason": f"send_failed_{resp.status_code}",
                 "provider": ai_copy["provider"],
                 "model": ai_copy["model"],
+                "email_status": "skipped",
+                "email_reason": "whatsapp_send_failed",
             }
 
+        email_status, email_reason = _send_onboarding_email()
         return {
             "status": "sent",
             "provider": ai_copy["provider"],
             "model": ai_copy["model"],
+            "email_status": email_status,
+            "email_reason": email_reason,
         }
     except Exception as exc:
         db.query(Gym).filter(Gym.id == gym_id).update(
@@ -780,4 +809,6 @@ def send_onboarding_self_message(
             "reason": str(exc),
             "provider": ai_copy["provider"],
             "model": ai_copy["model"],
+            "email_status": "skipped",
+            "email_reason": "whatsapp_send_failed",
         }
