@@ -403,7 +403,29 @@ def get_whatsapp_connection_status(db: Session, gym_id: int) -> WhatsAppStatusRe
         else:
             status = data.get("state") or data.get("status") or instance_state or "unknown"
 
-        return WhatsAppStatusResponse(instance_name=cred.instance_name, status=str(status))
+        qr_code = None
+        pairing_code = None
+        status_normalized = str(status).strip().lower()
+
+        # Evolution rotates QR frequently; refresh QR/pairing while pending to avoid stale scans.
+        if status_normalized in {"connecting", "pending", "pending_connection", "qrcode", "qr"}:
+            try:
+                connect_resp = client.get(
+                    f"{EVOLUTION_API_URL}/instance/connect/{cred.instance_name}",
+                    headers={"apikey": api_key},
+                )
+                if connect_resp.status_code < 400:
+                    connect_data = connect_resp.json() if connect_resp.content else {}
+                    qr_code, pairing_code = _extract_qr_and_pairing(connect_data)
+            except Exception as exc:
+                logger.debug("Failed to refresh QR for %s: %s", cred.instance_name, exc)
+
+        return WhatsAppStatusResponse(
+            instance_name=cred.instance_name,
+            status=str(status),
+            qr_code=qr_code,
+            pairing_code=pairing_code,
+        )
 
 
 def _generate_ai_member_welcome_copy(

@@ -319,7 +319,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       JWT_SECRET_KEY: your-production-secret-key
       EMAILENGINE_BASE_URL: ${EMAILENGINE_BASE_URL:-http://emailengine:3000}
-      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
+      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-03f7a7cc3f192cce8ffa0c1c2573e40ffa5ca4a5153fc3a73e960f6bfd5d71e9}
     depends_on:
       mysql:
         condition: service_healthy

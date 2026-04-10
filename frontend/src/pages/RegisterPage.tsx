@@ -55,10 +55,18 @@ export default function RegisterPage() {
 
       try {
         const statusRes = await gymService.getWhatsAppStatus(createdGymId);
-        const status = String(statusRes.data.data.status || '').toLowerCase();
+        const statusData = statusRes.data.data;
+        const status = String(statusData.status || '').toLowerCase();
 
         if (cancelled) {
           return;
+        }
+
+        if (statusData.qr_code) {
+          setQrCode(statusData.qr_code);
+        }
+        if (statusData.pairing_code) {
+          setPairingCode(statusData.pairing_code);
         }
 
         setConnectionStatus(status || 'pending_connection');
