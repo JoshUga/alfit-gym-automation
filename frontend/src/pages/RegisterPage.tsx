@@ -23,6 +23,7 @@ export default function RegisterPage() {
   const [gymEmail, setGymEmail] = useState('');
   const [gymPhone, setGymPhone] = useState('');
   const [gymAddress, setGymAddress] = useState('');
+  const [gymCurrency, setGymCurrency] = useState('UGX');
   const [whatsAppPhone, setWhatsAppPhone] = useState('');
   const [qrCode, setQrCode] = useState('');
   const [pairingCode, setPairingCode] = useState('');
@@ -192,10 +193,12 @@ export default function RegisterPage() {
         address: gymAddress || undefined,
         phone: gymPhone || undefined,
         email: gymEmail,
+        preferred_currency: gymCurrency || 'UGX',
       });
       const gymId = gymRes.data.data.id as number;
       setCreatedGymId(gymId);
       localStorage.setItem('active_gym_id', String(gymId));
+      localStorage.setItem('active_gym_currency', String(gymRes.data.data.preferred_currency || 'UGX'));
 
       const connectRes = await gymService.connectWhatsApp(gymId, {
         phone_number: whatsAppPhone,
@@ -393,6 +396,20 @@ export default function RegisterPage() {
                   onChange={(e) => setGymAddress(e.target.value)}
                   className="w-full rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-500/30"
                 />
+                <div>
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Preferred Currency</label>
+                  <select
+                    value={gymCurrency}
+                    onChange={(e) => setGymCurrency(e.target.value.toUpperCase())}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-500/30"
+                  >
+                    <option value="UGX">UGX (default)</option>
+                    <option value="USD">USD</option>
+                    <option value="KES">KES</option>
+                    <option value="TZS">TZS</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                </div>
               </>
             )}
 

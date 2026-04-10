@@ -145,6 +145,9 @@ services:
       EENGINE_PORT: 3000
       EENGINE_HOST: 0.0.0.0
       EENGINE_API_PROXY: "false"
+      EENGINE_REQUIRE_API_AUTH: "true"
+      EENGINE_PREPARED_TOKEN: g6JpZNlANzcwY2UxYWU0YjdiZDk0M2M1YmRhOTg5YjYxNGJhNTIzNzUzNTcxMDg3YzlmMmE5OGJiMzE4YjU0OTFmMjhlNKZzY29wZXORoSqrZGVzY3JpcHRpb261YWxmaXQgYm9vdHN0cmFwIHRva2Vu
+      EENGINE_SECRET: alfit-emailengine-secret
     networks:
       - alfit-network
 
@@ -318,11 +321,22 @@ services:
       MYSQL_DATABASE: alfit_email
       RABBITMQ_HOST: rabbitmq
       JWT_SECRET_KEY: your-production-secret-key
-      EMAILENGINE_BASE_URL: ${EMAILENGINE_BASE_URL:-http://emailengine:3000}
-      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-03f7a7cc3f192cce8ffa0c1c2573e40ffa5ca4a5153fc3a73e960f6bfd5d71e9}
+      EMAILENGINE_BASE_URL: http://emailengine:3000
+      EMAILENGINE_API_TOKEN: 111122223333444455556666777788889999aaaabbbbccccddddeeeeffff0000
+      SMTP_HOST: smtp-relay.brevo.com
+      SMTP_PORT: 587
+      SMTP_USERNAME: a7ac85001@smtp-brevo.com
+      SMTP_PASSWORD: xsmtpsib-3fa50da9495e06ce1004554d0ec78d7779bf110e9987248d52eb566950df301b-NiLLMBiqvJlUpYaE
+      SMTP_FROM_EMAIL: gym@withmexo.space
+      SMTP_FROM_NAME: Alfit Gym
+      SMTP_SECURE: "false"
+      EMAILENGINE_BOOTSTRAP_MAX_RETRIES: 20
+      EMAILENGINE_BOOTSTRAP_RETRY_DELAY_SECONDS: 2
     depends_on:
       mysql:
         condition: service_healthy
+      emailengine:
+        condition: service_started
     networks:
       - alfit-network
 

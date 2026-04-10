@@ -36,6 +36,33 @@ EVOLUTION_UPSERT_WEBHOOK_URL = os.getenv(
 logger = logging.getLogger(__name__)
 
 
+def _normalize_currency(value: str | None) -> str:
+    raw = (value or "UGX").strip().upper()
+    if not raw:
+        return "UGX"
+    if len(raw) > 8:
+        return raw[:8]
+    return raw
+
+
+def _normalize_member_name(value: str | None) -> str:
+    raw = re.sub(r"\s+", " ", str(value or "").strip())
+    if not raw:
+        return "there"
+    lowered = raw.lower()
+    placeholder_tokens = {
+        "member name",
+        "[member name]",
+        "{member name}",
+        "{member_name}",
+        "{{member_name}}",
+        "{{member name}}",
+    }
+    if lowered in placeholder_tokens:
+        return "there"
+    return raw
+
+
 def register_gym(db: Session, gym_data: GymCreate, owner_id: int) -> GymResponse:
     """Register a new gym."""
     gym = Gym(
@@ -43,6 +70,7 @@ def register_gym(db: Session, gym_data: GymCreate, owner_id: int) -> GymResponse
         address=gym_data.address,
         phone=gym_data.phone,
         email=gym_data.email,
+        preferred_currency=_normalize_currency(gym_data.preferred_currency),
         owner_id=owner_id,
     )
     db.add(gym)
@@ -79,6 +107,8 @@ def update_gym(db: Session, gym_id: int, gym_data: GymUpdate) -> GymResponse:
         raise NotFoundException("Gym", gym_id)
 
     update_data = gym_data.model_dump(exclude_unset=True)
+    if "preferred_currency" in update_data:
+        update_data["preferred_currency"] = _normalize_currency(update_data.get("preferred_currency"))
     for field, value in update_data.items():
         setattr(gym, field, value)
 
@@ -435,13 +465,16 @@ def _generate_ai_member_welcome_copy(
     training_days: list[str] | None,
     target: str | None,
     monthly_payment_amount: int | None,
+    currency_code: str | None = None,
 ) -> dict:
     provider = AI_PROVIDER
     model = AI_MODEL
+    member_display_name = _normalize_member_name(member_name)
     days_display = ", ".join(day for day in (training_days or []) if day) or "not specified"
     target_display = (target or "not specified").strip()
+    normalized_currency = _normalize_currency(currency_code)
     fee_display = (
-        f"${monthly_payment_amount}/month"
+        f"{normalized_currency} {monthly_payment_amount}/month"
         if isinstance(monthly_payment_amount, int) and monthly_payment_amount > 0
         else "not specified"
     )
@@ -458,7 +491,7 @@ def _generate_ai_member_welcome_copy(
         "- No markdown, no bullet points, no hashtags.\n"
         "- Output only the final message text.\n"
         f"Gym name: {gym_name}\n"
-        f"Member name: {member_name}\n"
+        f"Member name: {member_display_name}\n"
         f"Training days: {days_display}\n"
         f"Target: {target_display}\n"
         f"Monthly payment: {fee_display}\n"
@@ -467,7 +500,7 @@ def _generate_ai_member_welcome_copy(
 
     def _fallback_copy() -> str:
         return (
-            f"Welcome to {gym_name}, {member_name}! 🎉 We are excited to start with you. "
+            f"Welcome to {gym_name}, {member_display_name}! 🎉 We are excited to start with you. "
             f"Your training days are {days_display}, your target is {target_display}, and your monthly plan is {fee_display}. "
             "You are all set, and we are here to help you stay consistent 💪"
         )
@@ -491,6 +524,11 @@ def _generate_ai_member_welcome_copy(
             return None
         if len(cleaned.split()) > 85:
             return None
+        cleaned = re.sub(
+            r"(?i)(\[\s*member\s*name\s*\]|\{\s*member\s*name\s*\}|\{\{\s*member[_\s]*name\s*\}\}|member\s*name)",
+            member_display_name,
+            cleaned,
+        )
         return cleaned
 
     if provider == "ollama":
@@ -506,7 +544,7 @@ def _generate_ai_member_welcome_copy(
                             "prompt": prompt,
                             "stream": False,
                             "options": {
-                                "temperature": 0.35,
+                                "temperature": 0.95,
                                 "num_predict": 130,
                             },
                         },
@@ -576,6 +614,7 @@ def send_welcome_to_member(
         training_days=training_days,
         target=target,
         monthly_payment_amount=monthly_payment_amount,
+        currency_code=gym.preferred_currency,
     )
     payload = {"number": member_phone, "text": ai_copy["text"]}
     headers = {"apikey": api_key, "Content-Type": "application/json"}
@@ -638,7 +677,7 @@ def _generate_ai_onboarding_copy(gym_name: str, owner_name: str | None) -> dict:
 
     prompt = (
         "Write exactly one short WhatsApp message in English.\n"
-        "Goal: welcome a new gym owner after connecting WhatsApp to Alfit.\n"
+        "Goal: welcome a new gym owner after connecting WhatsApp to our platform Alfit.\n"
         "Tone: warm, human, confident, not robotic.\n"
         "Rules:\n"
         "- Include 3 to 5 relevant emojis naturally.\n"
@@ -696,7 +735,7 @@ def _generate_ai_onboarding_copy(gym_name: str, owner_name: str | None) -> dict:
                             "prompt": prompt,
                             "stream": False,
                             "options": {
-                                "temperature": 0.3,
+                                "temperature": 0.5,
                                 "num_predict": 110,
                             },
                         },
@@ -767,6 +806,11 @@ def send_onboarding_self_message(
                 )
             if response.status_code >= 400:
                 return "failed", f"email_http_{response.status_code}"
+            payload = response.json() if response.content else {}
+            response_data = payload.get("data") if isinstance(payload, dict) else None
+            email_delivery_status = str((response_data or {}).get("status") or "").lower()
+            if email_delivery_status and email_delivery_status != "sent":
+                return "failed", f"email_service_{email_delivery_status}"
             return "sent", None
         except Exception as exc:
             logger.warning("Onboarding email send failed for gym %s: %s", gym_id, exc)

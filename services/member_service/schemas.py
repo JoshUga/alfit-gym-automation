@@ -70,7 +70,7 @@ class GroupResponse(BaseModel):
 
 class MemberPaymentCreate(BaseModel):
     amount: int
-    currency: str = "USD"
+    currency: str = "UGX"
     payment_method: Optional[str] = None
     status: str = "completed"
     billing_month: Optional[str] = None

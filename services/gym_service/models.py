@@ -14,6 +14,7 @@ class Gym(Base):
     address = Column(String(500), nullable=True)
     phone = Column(String(50), nullable=True)
     email = Column(String(255), nullable=True)
+    preferred_currency = Column(String(8), nullable=False, default="UGX", server_default="UGX")
     owner_id = Column(Integer, nullable=False, index=True)
     is_active = Column(Boolean, default=True)
     onboarding_welcome_sent_at = Column(DateTime(timezone=True), nullable=True)

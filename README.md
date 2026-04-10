@@ -7,7 +7,7 @@ SMTP sending is managed through the `email-service` using EmailEngine account ma
 
 - Configure EmailEngine access in `docker-compose.yml` under `email-service` environment:
   - `EMAILENGINE_BASE_URL` (example: `http://emailengine:3000`)
-  - `EMAILENGINE_API_TOKEN`
+  - `EMAILENGINE_API_TOKEN` (optional; required only when `EMAILENGINE_REQUIRE_API_AUTH=true`)
 - Add one or more SMTP/EmailEngine accounts via API:
   - `POST /api/email/smtp/accounts`
 - Run account checks:
@@ -21,7 +21,41 @@ The email-service can auto-bootstrap one SMTP account at startup from environmen
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`
 - Optional: `SMTP_GYM_ID`, `SMTP_ACCOUNT_NAME`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`, `SMTP_SECURE`, `EMAILENGINE_INIT_ACCOUNT_ID`
 
-When `EMAILENGINE_API_TOKEN` is not provided, the service now generates a deterministic runtime token from SMTP bootstrap env vars.
+`SMTP_PASSWORD` should be your provider SMTP credential (for Brevo, this is your SMTP/API key used as SMTP password).
+
+### Local Docker quick start
+
+1. Create `.env` from `.env.example`.
+2. Set SMTP vars (`SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`).
+3. For local/dev, keep `EMAILENGINE_REQUIRE_API_AUTH=false` (default).
+4. Recreate services: `docker compose up --build -d`.
+
+If you enable `EMAILENGINE_REQUIRE_API_AUTH=true`, you must also provide a valid `EMAILENGINE_API_TOKEN` accepted by EmailEngine.
+
+### Rotate EmailEngine auth token (one command)
+
+Use the helper script to generate both required values as a matching pair:
+
+```bash
+scripts/generate_emailengine_tokens.sh
+```
+
+Or provide your own deterministic raw token:
+
+```bash
+scripts/generate_emailengine_tokens.sh <64-char-hex-token>
+```
+
+The script prints:
+
+- `EMAILENGINE_API_TOKEN` (set on `email-service`)
+- `EENGINE_PREPARED_TOKEN` (set on `emailengine`)
+
+After updating `docker-compose.yml`, restart both services:
+
+```bash
+docker compose up -d --build emailengine email-service
+```
 
 The system rotates active SMTP accounts automatically for outgoing email sends.
 

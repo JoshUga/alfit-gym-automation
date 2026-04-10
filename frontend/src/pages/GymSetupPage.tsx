@@ -2,12 +2,17 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { gymService } from '../services/api';
 
+function isConnectedStatus(status: string) {
+  return ['open', 'connected', 'online'].includes(status.toLowerCase());
+}
+
 export default function GymSetupPage() {
   const navigate = useNavigate();
   const [gymName, setGymName] = useState('');
   const [gymEmail, setGymEmail] = useState('');
   const [gymPhone, setGymPhone] = useState('');
   const [gymAddress, setGymAddress] = useState('');
+  const [gymCurrency, setGymCurrency] = useState('UGX');
   const [evolutionApiKey, setEvolutionApiKey] = useState('');
   const [instanceName, setInstanceName] = useState('');
   const [pairingPhone, setPairingPhone] = useState('');
@@ -29,10 +34,13 @@ export default function GymSetupPage() {
         address: gymAddress,
         phone: gymPhone,
         email: gymEmail,
+        preferred_currency: gymCurrency,
       });
 
       const createdGymId = registerRes.data.data.id as number;
       setGymId(createdGymId);
+      localStorage.setItem('active_gym_id', String(createdGymId));
+      localStorage.setItem('active_gym_currency', String(registerRes.data.data.preferred_currency || 'UGX'));
 
       const resolvedInstanceName = instanceName || `gym-${createdGymId}`;
       await gymService.setEvolutionCredentials(createdGymId, {
@@ -49,7 +57,14 @@ export default function GymSetupPage() {
       setPairingCode(connectData.pairing_code || '');
 
       const statusRes = await gymService.getWhatsAppStatus(createdGymId);
-      setStatus(statusRes.data.data.status || 'unknown');
+      const currentStatus = String(statusRes.data.data.status || 'unknown');
+      setStatus(currentStatus);
+
+      if (pairingPhone && isConnectedStatus(currentStatus)) {
+        await gymService.sendOnboardingWelcome(createdGymId, {
+          phone_number: pairingPhone,
+        });
+      }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Failed to complete gym setup');
@@ -98,6 +113,17 @@ export default function GymSetupPage() {
           onChange={(e) => setGymAddress(e.target.value)}
           className="input-field"
         />
+        <select
+          value={gymCurrency}
+          onChange={(e) => setGymCurrency(e.target.value.toUpperCase())}
+          className="input-field"
+        >
+          <option value="UGX">UGX (default)</option>
+          <option value="USD">USD</option>
+          <option value="KES">KES</option>
+          <option value="TZS">TZS</option>
+          <option value="EUR">EUR</option>
+        </select>
         <input
           type="text"
           placeholder="Evolution API key (instance token)"

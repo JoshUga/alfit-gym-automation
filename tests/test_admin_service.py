@@ -129,10 +129,16 @@ class TestServiceAdminDashboard:
             "X-Admin-Password": "change-this-service-admin-password-now",
         }
         db.execute(text(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, hashed_password TEXT, full_name TEXT, role TEXT, is_active INTEGER, google_id TEXT)"
+        ))
+        db.execute(text(
             "CREATE TABLE gyms (id INTEGER PRIMARY KEY, name TEXT, email TEXT, phone TEXT, is_active INTEGER)"
         ))
         db.execute(text(
             "CREATE TABLE members (id INTEGER PRIMARY KEY, gym_id INTEGER, status TEXT)"
+        ))
+        db.execute(text(
+            "INSERT INTO users (id, email, hashed_password, full_name, role, is_active, google_id) VALUES (1, 'owner@example.com', 'hash', 'Owner', 'gym_owner', 1, NULL)"
         ))
         db.execute(text(
             "INSERT INTO gyms (id, name, email, phone, is_active) VALUES (1, 'Alpha Gym', 'alpha@example.com', '123', 1)"
@@ -161,6 +167,9 @@ class TestServiceAdminDashboard:
         assert backups_after_purge.status_code == 200
         assert any(item["id"] == backup_id for item in backups_after_purge.json()["data"])
 
+        users_after_purge = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
+        assert users_after_purge == 0
+
         gyms_after_purge = client.get("/api/v1/admin/service/gyms", headers=headers)
         assert gyms_after_purge.status_code == 200
         assert gyms_after_purge.json()["data"] == []
@@ -178,3 +187,6 @@ class TestServiceAdminDashboard:
         gyms = gyms_after_restore.json()["data"]
         assert len(gyms) == 1
         assert gyms[0]["name"] == "Alpha Gym"
+
+        users_after_restore = db.execute(text("SELECT email FROM users ORDER BY id")).fetchall()
+        assert [row[0] for row in users_after_restore] == ["owner@example.com"]

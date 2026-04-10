@@ -24,6 +24,7 @@ router = APIRouter()
 
 GYM_SERVICE_URL = os.getenv("GYM_SERVICE_URL", "http://gym-service:8000")
 WORKOUT_SERVICE_URL = os.getenv("WORKOUT_SERVICE_URL", "http://workout-service:8000")
+EMAIL_SERVICE_URL = os.getenv("EMAIL_SERVICE_URL", "http://email-service:8000")
 
 
 def get_session():
@@ -105,6 +106,51 @@ def _fire_generate_workout_plan(
         return {"status": "error", "reason": str(exc)}
 
 
+def _fire_welcome_email(
+    gym_id: int,
+    member_name: str,
+    member_email: str | None,
+    training_days: list[str] | None,
+    target: str | None,
+    monthly_payment_amount: int | None,
+) -> dict:
+    """Best-effort call to email_service to send a welcome email to new members."""
+    if not member_email:
+        return {"status": "skipped", "reason": "member_email_missing"}
+
+    try:
+        with httpx.Client(timeout=12.0) as client:
+            response = client.post(
+                f"{EMAIL_SERVICE_URL}/api/v1/email/send/internal",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "gym_id": gym_id,
+                    "recipient": member_email,
+                    "subject": f"Welcome to your gym journey, {member_name}",
+                    "template_name": "member_welcome",
+                    "template_data": {
+                        "member_name": member_name,
+                        "training_days": ", ".join(training_days or []) or "not specified",
+                        "target": target or "not specified",
+                        "monthly_payment_amount": monthly_payment_amount,
+                    },
+                },
+            )
+
+        if response.status_code >= 400:
+            return {"status": "failed", "reason": f"email_service_http_{response.status_code}"}
+
+        payload = response.json() if response.content else {}
+        response_data = payload.get("data") if isinstance(payload, dict) else None
+        email_delivery_status = str((response_data or {}).get("status") or "").lower()
+        if email_delivery_status and email_delivery_status != "sent":
+            return {"status": "failed", "reason": f"email_service_{email_delivery_status}"}
+        return {"status": "sent"}
+    except Exception as exc:
+        logger.warning("Could not send welcome email for member %s in gym %s: %s", member_name, gym_id, exc)
+        return {"status": "error", "reason": str(exc)}
+
+
 @router.post("/members", response_model=APIResponse[MemberResponse])
 def add_member(
     request: Request,
@@ -132,8 +178,17 @@ def add_member(
         training_days=result.training_days,
         auth_header=request.headers.get("Authorization"),
     )
+    email_result = _fire_welcome_email(
+        gym_id=data.gym_id,
+        member_name=result.name,
+        member_email=result.email,
+        training_days=result.training_days,
+        target=result.target,
+        monthly_payment_amount=result.monthly_payment_amount,
+    )
     welcome_status = str(welcome_result.get("status") or "unknown")
     workout_status = str(workout_result.get("status") or "unknown")
+    email_status = str(email_result.get("status") or "unknown")
 
     workout_message = "workout plan generated"
     if workout_status == "skipped":
@@ -141,17 +196,23 @@ def add_member(
     elif workout_status != "generated":
         workout_message = f"workout generation not completed ({workout_result.get('reason', workout_status)})"
 
+    email_message = "welcome email sent"
+    if email_status == "skipped":
+        email_message = f"welcome email skipped ({email_result.get('reason', 'unknown')})"
+    elif email_status != "sent":
+        email_message = f"welcome email not sent ({email_result.get('reason', email_status)})"
+
     if welcome_status == "sent":
-        message = f"Member added, WhatsApp welcome sent, and {workout_message}"
+        message = f"Member added, WhatsApp welcome sent, {email_message}, and {workout_message}"
     elif welcome_status == "skipped":
         message = (
             "Member added, WhatsApp welcome skipped "
-            f"({welcome_result.get('reason', 'unknown')}), and {workout_message}"
+            f"({welcome_result.get('reason', 'unknown')}), {email_message}, and {workout_message}"
         )
     else:
         message = (
             "Member added, WhatsApp welcome not sent "
-            f"({welcome_result.get('reason', welcome_status)}), and {workout_message}"
+            f"({welcome_result.get('reason', welcome_status)}), {email_message}, and {workout_message}"
         )
     return APIResponse(data=result, message=message)
 

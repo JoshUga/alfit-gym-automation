@@ -2,6 +2,9 @@
 
 import logging
 import os
+import random
+import time
+import re
 import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -18,17 +21,23 @@ logger = logging.getLogger(__name__)
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://ai-service:8000").rstrip("/")
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "http://evolution-api:8080").rstrip("/")
 EVOLUTION_API_GLOBAL_KEY = os.getenv("EVOLUTION_API_GLOBAL_KEY", "")
+AUTO_REPLY_MIN_DELAY_MS = max(0, int(os.getenv("AUTO_REPLY_MIN_DELAY_MS", "1200") or 1200))
+AUTO_REPLY_MAX_DELAY_MS = max(AUTO_REPLY_MIN_DELAY_MS, int(os.getenv("AUTO_REPLY_MAX_DELAY_MS", "3200") or 3200))
+AUTO_REPLY_TYPING_ENABLED = os.getenv("AUTO_REPLY_TYPING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _extract_gym_id_from_instance(instance_name: str | None) -> int:
-    """Infer gym id from instance names like gym-12."""
+    """Infer gym id from instance names like gym-12, gym_12 or any suffix with digits."""
     if not instance_name:
         return 0
-    parts = instance_name.strip().split("-")
-    if len(parts) < 2:
+    cleaned = instance_name.strip()
+    if not cleaned:
+        return 0
+    match = re.search(r"(\d+)$", cleaned)
+    if not match:
         return 0
     try:
-        return int(parts[-1])
+        return int(match.group(1))
     except (TypeError, ValueError):
         return 0
 
@@ -41,7 +50,7 @@ def _extract_message_data(data: object) -> dict:
     if isinstance(data.get("key"), dict) or "message" in data:
         return data
 
-    for key in ("messages", "message", "data"):
+    for key in ("messages", "message", "data", "payload"):
         value = data.get(key)
         if isinstance(value, list) and value and isinstance(value[0], dict):
             return value[0]
@@ -52,6 +61,10 @@ def _extract_message_data(data: object) -> dict:
                     return first
             if isinstance(value.get("key"), dict) or "message" in value:
                 return value
+            if isinstance(value.get("data"), dict):
+                inner = value.get("data")
+                if isinstance(inner.get("key"), dict) or "message" in inner:
+                    return inner
     return {}
 
 
@@ -131,6 +144,44 @@ def _send_whatsapp_reply(instance_name: str, to_number: str, text: str) -> None:
         raise RuntimeError(f"evolution_send_failed_{response.status_code}")
 
 
+def _human_reply_delay_seconds(reply_text: str) -> float:
+    words = max(1, len((reply_text or "").split()))
+    reading_factor = min(2200, max(0, (words - 6) * 70))
+    base_delay_ms = random.randint(AUTO_REPLY_MIN_DELAY_MS, AUTO_REPLY_MAX_DELAY_MS)
+    return (base_delay_ms + reading_factor) / 1000.0
+
+
+def _send_typing_presence(instance_name: str, to_number: str, state: str) -> None:
+    """Best-effort typing/presence event to make replies feel natural."""
+    if not EVOLUTION_API_GLOBAL_KEY:
+        return
+
+    payload_variants = [
+        {"number": to_number, "presence": state},
+        {"number": to_number, "status": state},
+        {"remoteJid": f"{to_number}@s.whatsapp.net", "presence": state},
+    ]
+    endpoint_variants = [
+        f"{EVOLUTION_API_URL}/chat/sendPresence/{instance_name}",
+        f"{EVOLUTION_API_URL}/message/sendPresence/{instance_name}",
+        f"{EVOLUTION_API_URL}/chat/presence/{instance_name}",
+    ]
+
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            for endpoint in endpoint_variants:
+                for payload in payload_variants:
+                    response = client.post(
+                        endpoint,
+                        headers={"apikey": EVOLUTION_API_GLOBAL_KEY, "Content-Type": "application/json"},
+                        json=payload,
+                    )
+                    if response.status_code < 400:
+                        return
+    except Exception:
+        return
+
+
 def process_message(db: Session, data: IncomingMessageEvent) -> ProcessedMessageResponse:
     """Process an incoming message."""
     existing = (
@@ -172,7 +223,7 @@ def list_processed_messages(db: Session, gym_id: int) -> list[ProcessedMessageRe
 
 def handle_evolution_upsert(db: Session, payload: EvolutionUpsertWebhook) -> dict:
     """Handle Evolution MESSAGES_UPSERT webhook and persist processed message."""
-    event_name = str(payload.event or payload.event_type or "").lower()
+    event_name = str(payload.event or payload.event_type or "").strip().lower()
     if event_name not in {"messages.upsert", "messages_upsert", "messages-upsert"}:
         return {"status": "ignored", "reason": "unsupported_event"}
 
@@ -201,7 +252,16 @@ def handle_evolution_upsert(db: Session, payload: EvolutionUpsertWebhook) -> dic
         or "unknown"
     )
     content = _extract_text_content(message_obj)
-    instance_name = payload.instance_name or payload.instance or ""
+    raw_instance = payload.instance_name or payload.instance or ""
+    if isinstance(raw_instance, dict):
+        instance_name = str(
+            raw_instance.get("instanceName")
+            or raw_instance.get("instance")
+            or raw_instance.get("name")
+            or ""
+        ).strip()
+    else:
+        instance_name = str(raw_instance).strip()
     gym_id = _extract_gym_id_from_instance(instance_name)
     from_me = _is_from_me(message_obj)
 
@@ -252,7 +312,12 @@ def handle_evolution_upsert(db: Session, payload: EvolutionUpsertWebhook) -> dic
 
     try:
         ai_result = _generate_ai_reply(gym_id=gym_id, incoming_message=content)
+        if AUTO_REPLY_TYPING_ENABLED:
+            _send_typing_presence(instance_name=instance_name, to_number=to_number, state="composing")
+        time.sleep(_human_reply_delay_seconds(ai_result["response_text"]))
         _send_whatsapp_reply(instance_name=instance_name, to_number=to_number, text=ai_result["response_text"])
+        if AUTO_REPLY_TYPING_ENABLED:
+            _send_typing_presence(instance_name=instance_name, to_number=to_number, state="paused")
         db.query(ProcessedMessage).filter(ProcessedMessage.message_id == message_id).update(
             {ProcessedMessage.ai_response_triggered: True},
             synchronize_session=False,

@@ -292,7 +292,7 @@ def create_member_payment(
         member_id=member.id,
         gym_id=member.gym_id,
         amount=data.amount,
-        currency=(data.currency or "USD").upper(),
+        currency=(data.currency or "UGX").upper(),
         payment_method=data.payment_method,
         status=MemberPaymentStatus(normalized_status),
         billing_month=billing_month,

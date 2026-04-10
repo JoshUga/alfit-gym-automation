@@ -14,6 +14,7 @@ interface Member {
   training_days?: string[];
   target?: string;
   monthly_payment_amount?: number;
+  created_at?: string;
   [key: string]: unknown;
 }
 
@@ -89,8 +90,8 @@ const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satu
 
 const CALENDAR_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function blankPaymentForm() {
-  return { amount: '', currency: 'USD', paymentMethod: '', status: 'completed', billingMonth: currentBillingMonth(), note: '' };
+function blankPaymentForm(defaultCurrency = 'UGX') {
+  return { amount: '', currency: defaultCurrency, paymentMethod: '', status: 'completed', billingMonth: currentBillingMonth(), note: '' };
 }
 
 function resolveTrainingDays(member: Member): string[] {
@@ -282,6 +283,7 @@ export default function MembersPage() {
     const savedGymId = localStorage.getItem('active_gym_id');
     return savedGymId ? Number(savedGymId) : null;
   });
+  const [gymCurrency, setGymCurrency] = useState<string>(() => localStorage.getItem('active_gym_currency') || 'UGX');
   const [isAddDrawerOpen, setIsAddDrawerOpen] = useState(false);
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false);
   const [isDeleteDrawerOpen, setIsDeleteDrawerOpen] = useState(false);
@@ -306,7 +308,7 @@ export default function MembersPage() {
   const [loadingMemberDetail, setLoadingMemberDetail] = useState(false);
   const [generatingWorkoutPlan, setGeneratingWorkoutPlan] = useState(false);
   const [memberPayments, setMemberPayments] = useState<MemberPayment[]>([]);
-  const [paymentForm, setPaymentForm] = useState(blankPaymentForm());
+  const [paymentForm, setPaymentForm] = useState(blankPaymentForm(gymCurrency));
   const [loadingPayments, setLoadingPayments] = useState(false);
 
   useEffect(() => {
@@ -352,6 +354,9 @@ export default function MembersPage() {
         if (Number.isFinite(parsedGymId)) {
           try {
             setGymId(parsedGymId);
+            if (localStorage.getItem('active_gym_currency')) {
+              setGymCurrency(localStorage.getItem('active_gym_currency') || 'UGX');
+            }
             const membersRes = await memberService.list(parsedGymId);
             setMembers(membersRes.data.data);
             loadedFromCache = true;
@@ -366,8 +371,11 @@ export default function MembersPage() {
       if (!loadedFromCache) {
         const gymRes = await gymService.getMine();
         const resolvedGymId = gymRes.data.data.id as number;
+        const resolvedCurrency = String(gymRes.data.data.preferred_currency || 'UGX').toUpperCase();
         setGymId(resolvedGymId);
+        setGymCurrency(resolvedCurrency);
         localStorage.setItem('active_gym_id', String(resolvedGymId));
+        localStorage.setItem('active_gym_currency', resolvedCurrency);
 
         const membersRes = await memberService.list(resolvedGymId);
         setMembers(membersRes.data.data);
@@ -490,7 +498,7 @@ export default function MembersPage() {
 
   const openPaymentDrawer = async (member: Member) => {
     setSelectedMember(member);
-    setPaymentForm(blankPaymentForm());
+    setPaymentForm(blankPaymentForm(gymCurrency));
     setError('');
     setIsPaymentDrawerOpen(true);
     setLoadingPayments(true);
@@ -528,14 +536,14 @@ export default function MembersPage() {
     try {
       const res = await memberService.createPayment(selectedMember.id, {
         amount: Math.round(numericAmount),
-        currency: paymentForm.currency || 'USD',
+        currency: paymentForm.currency || gymCurrency || 'UGX',
         payment_method: paymentForm.paymentMethod || undefined,
         status: paymentForm.status || 'completed',
         billing_month: paymentForm.billingMonth,
         note: paymentForm.note || undefined,
       });
       setMemberPayments((prev) => [res.data.data, ...prev]);
-      setPaymentForm(blankPaymentForm());
+      setPaymentForm(blankPaymentForm(gymCurrency));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to record payment');
@@ -678,6 +686,10 @@ export default function MembersPage() {
   const parsedWorkoutWeeks = parseWorkoutPlanXml(workoutXmlDraft);
 
   const attendanceStatusForDate = (dateIso: string): AttendanceCellStatus => {
+    const memberCreatedAt = selectedMember?.created_at ? isoDate(new Date(selectedMember.created_at)) : null;
+    if (memberCreatedAt && dateIso < memberCreatedAt) {
+      return 'off';
+    }
     const recorded = monthAttendance[dateIso];
     if (recorded) {
       return recorded;
@@ -740,7 +752,7 @@ export default function MembersPage() {
     {
       key: 'monthly_payment_amount',
       label: 'Monthly Fee',
-      render: (m: Member) => <span className="text-xs text-gray-600">{m.monthly_payment_amount ? `$${m.monthly_payment_amount}` : '—'}</span>,
+      render: (m: Member) => <span className="text-xs text-gray-600">{m.monthly_payment_amount ? `${gymCurrency} ${m.monthly_payment_amount}` : '—'}</span>,
     },
     {
       key: 'actions',
@@ -1064,7 +1076,7 @@ export default function MembersPage() {
             <input
               type="text"
               maxLength={8}
-              placeholder="Currency (USD)"
+              placeholder={`Currency (${gymCurrency})`}
               className="input-field"
               value={paymentForm.currency}
               onChange={(e) => setPaymentForm((prev) => ({ ...prev, currency: e.target.value.toUpperCase() }))}

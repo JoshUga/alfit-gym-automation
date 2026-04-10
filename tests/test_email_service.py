@@ -136,7 +136,6 @@ class TestSendEmail:
         monkeypatch.setenv("SMTP_PASSWORD", "secret")
         monkeypatch.setenv("SMTP_GYM_ID", "7")
         monkeypatch.setenv("SMTP_ACCOUNT_NAME", "Auto SMTP")
-        monkeypatch.delenv("EMAILENGINE_API_TOKEN", raising=False)
 
         result = email_service.auto_initialize_emailengine(db)
         assert result["initialized"] is True

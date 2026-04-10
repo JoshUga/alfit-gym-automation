@@ -2,8 +2,7 @@
 
 import logging
 import os
-import secrets
-import threading
+import time
 from datetime import datetime, timezone
 import httpx
 from sqlalchemy import or_
@@ -21,8 +20,6 @@ from services.email_service.schemas import (
 logger = logging.getLogger(__name__)
 EMAILENGINE_BASE_URL = os.getenv("EMAILENGINE_BASE_URL", "").rstrip("/")
 EMAILENGINE_API_TOKEN = os.getenv("EMAILENGINE_API_TOKEN", "").strip()
-_RUNTIME_EMAILENGINE_API_TOKEN = ""
-_RUNTIME_EMAILENGINE_API_TOKEN_LOCK = threading.Lock()
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -33,24 +30,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _current_emailengine_api_token() -> str:
-    global _RUNTIME_EMAILENGINE_API_TOKEN
-    if EMAILENGINE_API_TOKEN:
-        return EMAILENGINE_API_TOKEN
-    if _RUNTIME_EMAILENGINE_API_TOKEN:
-        return _RUNTIME_EMAILENGINE_API_TOKEN
-    with _RUNTIME_EMAILENGINE_API_TOKEN_LOCK:
-        if _RUNTIME_EMAILENGINE_API_TOKEN:
-            return _RUNTIME_EMAILENGINE_API_TOKEN
-        smtp_host = os.getenv("SMTP_HOST", "").strip()
-        smtp_username = os.getenv("SMTP_USERNAME", "").strip()
-        smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-        if not smtp_host or not smtp_username or not smtp_password:
-            return ""
-        _RUNTIME_EMAILENGINE_API_TOKEN = secrets.token_hex(32)
-        logger.warning(
-            "EMAILENGINE_API_TOKEN is not configured; generated a secure runtime token for SMTP bootstrap."
-        )
-        return _RUNTIME_EMAILENGINE_API_TOKEN
+    return EMAILENGINE_API_TOKEN
 
 
 def _pick_next_smtp_account(db: Session, gym_id: int | None) -> SMTPAccount | None:
@@ -83,6 +63,7 @@ def _send_via_emailengine(account: SMTPAccount | None, data: SendEmailRequest) -
                 "subject": data.subject,
                 "text": "",
                 "html": html_content,
+                "gateway": account.emailengine_account_id,
             },
         )
     if response.status_code >= 400:
@@ -116,6 +97,65 @@ def _derive_emailengine_account_id() -> str:
     return "bootstrap-smtp-account"
 
 
+def _derive_emailengine_gateway_id() -> str:
+    configured = os.getenv("EMAILENGINE_INIT_GATEWAY_ID", "").strip()
+    if configured:
+        return configured
+    return _derive_emailengine_account_id()
+
+
+def _ensure_emailengine_gateway(gateway_id: str) -> bool:
+    if not EMAILENGINE_BASE_URL:
+        return False
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    smtp_port_raw = os.getenv("SMTP_PORT", "587").strip()
+    smtp_port = int(smtp_port_raw) if smtp_port_raw.isdigit() else 587
+    smtp_secure = _env_bool("SMTP_SECURE", default=False)
+    gateway_name = os.getenv("SMTP_ACCOUNT_NAME", "").strip() or gateway_id
+
+    if not smtp_host or not smtp_username or not smtp_password:
+        return False
+
+    create_payload = {
+        "gateway": gateway_id,
+        "name": gateway_name,
+        "host": smtp_host,
+        "port": smtp_port,
+        "secure": smtp_secure,
+        "user": smtp_username,
+        "pass": smtp_password,
+    }
+    update_payload = {
+        "name": gateway_name,
+        "host": smtp_host,
+        "port": smtp_port,
+        "secure": smtp_secure,
+        "user": smtp_username,
+        "pass": smtp_password,
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            create_response = client.post(
+                f"{EMAILENGINE_BASE_URL}/v1/gateway",
+                headers=_build_emailengine_headers(),
+                json=create_payload,
+            )
+            if create_response.status_code < 400 or create_response.status_code == 409:
+                return True
+            upsert_response = client.put(
+                f"{EMAILENGINE_BASE_URL}/v1/gateway/edit/{gateway_id}",
+                headers=_build_emailengine_headers(),
+                json=update_payload,
+            )
+            return upsert_response.status_code < 400
+    except Exception as exc:
+        logger.warning("EmailEngine gateway auto-init request failed: %s", exc)
+        return False
+
+
 def _ensure_emailengine_account(account_id: str) -> bool:
     if not EMAILENGINE_BASE_URL:
         return False
@@ -140,7 +180,6 @@ def _ensure_emailengine_account(account_id: str) -> bool:
             "secure": smtp_secure,
             "auth": {"user": smtp_username, "pass": smtp_password},
         },
-        "from": {"name": smtp_from_name, "address": smtp_from_email},
     }
 
     try:
@@ -178,9 +217,23 @@ def auto_initialize_emailengine(db: Session) -> dict:
     gym_id_raw = os.getenv("SMTP_GYM_ID", "").strip()
     gym_id = int(gym_id_raw) if gym_id_raw.isdigit() else None
     account_id = _derive_emailengine_account_id()
+    gateway_id = _derive_emailengine_gateway_id()
     account_name = os.getenv("SMTP_ACCOUNT_NAME", "").strip() or "Auto Bootstrap SMTP"
 
-    _ensure_emailengine_account(account_id)
+    max_retries_raw = os.getenv("EMAILENGINE_BOOTSTRAP_MAX_RETRIES", "15").strip()
+    retry_delay_raw = os.getenv("EMAILENGINE_BOOTSTRAP_RETRY_DELAY_SECONDS", "2").strip()
+    max_retries = int(max_retries_raw) if max_retries_raw.isdigit() else 15
+    retry_delay_seconds = int(retry_delay_raw) if retry_delay_raw.isdigit() else 2
+
+    gateway_ok = False
+    account_ok = False
+    for attempt in range(max_retries):
+        gateway_ok = _ensure_emailengine_gateway(gateway_id)
+        account_ok = _ensure_emailengine_account(account_id)
+        if gateway_ok and account_ok:
+            break
+        if attempt < max_retries - 1:
+            time.sleep(max(retry_delay_seconds, 1))
 
     existing = db.query(SMTPAccount).filter(SMTPAccount.emailengine_account_id == account_id).first()
     if not existing:
@@ -198,12 +251,13 @@ def auto_initialize_emailengine(db: Session) -> dict:
         existing.is_active = True
     db.commit()
 
-    _current_emailengine_api_token()
-    generated_token = bool(_RUNTIME_EMAILENGINE_API_TOKEN)
     return {
         "initialized": True,
         "account_id": account_id,
-        "token_generated": generated_token,
+        "gateway_id": gateway_id,
+        "token_configured": bool(_current_emailengine_api_token()),
+        "gateway_initialized": gateway_ok,
+        "account_initialized": account_ok,
     }
 
 

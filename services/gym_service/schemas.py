@@ -10,6 +10,7 @@ class GymCreate(BaseModel):
     address: Optional[str] = None
     phone: Optional[str] = None
     email: EmailStr
+    preferred_currency: Optional[str] = "UGX"
 
 
 class GymUpdate(BaseModel):
@@ -17,6 +18,7 @@ class GymUpdate(BaseModel):
     address: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
+    preferred_currency: Optional[str] = None
 
 
 class GymResponse(BaseModel):
@@ -25,6 +27,7 @@ class GymResponse(BaseModel):
     address: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
+    preferred_currency: str = "UGX"
     owner_id: int
     is_active: bool
     created_at: Optional[datetime] = None

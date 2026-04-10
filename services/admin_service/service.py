@@ -40,6 +40,7 @@ SERVICE_ADMIN_USERNAME = os.getenv("SERVICE_ADMIN_USERNAME", "service-admin")
 SERVICE_ADMIN_PASSWORD = os.getenv("SERVICE_ADMIN_PASSWORD", "change-this-service-admin-password-now")
 
 BACKUP_TABLES = [
+    "alfit_auth.users",
     "alfit_gym.gyms",
     "alfit_member.members",
     "alfit_member.member_groups",

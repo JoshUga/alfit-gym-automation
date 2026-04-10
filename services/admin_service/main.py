@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from shared.health import create_health_router
 from shared.exceptions import AlfitException, alfit_exception_handler
+from shared.database import Base, get_engine
+from services.admin_service import models  # noqa: F401
 from services.admin_service.routes import router as admin_router
 
 app = FastAPI(title="Alfit Admin Service", version="0.1.0")
@@ -21,6 +23,12 @@ app.add_middleware(
 app.add_exception_handler(AlfitException, alfit_exception_handler)
 app.include_router(create_health_router("admin-service"))
 app.include_router(admin_router, prefix="/api/v1", tags=["Admin"])
+
+
+@app.on_event("startup")
+def create_tables() -> None:
+  """Create admin service tables if they do not exist."""
+  Base.metadata.create_all(bind=get_engine())
 
 
 @app.get("/admin/service/dashboard", response_class=HTMLResponse)
@@ -95,11 +103,18 @@ def service_dashboard():
           function setMsg(t) {{ document.getElementById('msg').textContent = t; }}
           async function api(path, opts={{}}) {{
             const r = await fetch(path, {{...opts, headers: {{'Content-Type':'application/json', ...(headers||{{}}), ...(opts.headers||{{}})}}}});
-            const payload = await r.json();
-            if (!r.ok || payload?.success === false) {{
-              throw new Error(payload?.message || `Request failed (${{r.status}})`);
+            const raw = await r.text();
+            let payload = null;
+            try {{
+              payload = raw ? JSON.parse(raw) : null;
+            }} catch {{
+              payload = null;
             }}
-            return payload;
+            if (!r.ok || payload?.success === false) {{
+              const textMsg = (raw || '').slice(0, 220).trim();
+              throw new Error(payload?.message || textMsg || `Request failed (${{r.status}})`);
+            }}
+            return payload || {{ success: true, data: null }};
           }}
           async function login() {{
             const username = document.getElementById('username').value;

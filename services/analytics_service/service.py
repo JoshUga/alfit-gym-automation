@@ -3,6 +3,8 @@
 from datetime import datetime, timedelta, timezone, date
 from sqlalchemy import func as sql_func, cast, Date
 from sqlalchemy.orm import Session
+from services.gym_service.models import GymPhoneNumber
+from services.member_service.models import Member
 from services.analytics_service.models import MessageLog, MessageType
 from services.analytics_service.schemas import (
     KPIResponse,
@@ -16,6 +18,20 @@ def get_kpis(db: Session, gym_id: int) -> KPIResponse:
     now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
     thirty_days_ago = now - timedelta(days=30)
+
+    total_members = (
+        db.query(sql_func.count(Member.id))
+        .filter(Member.gym_id == gym_id)
+        .scalar()
+        or 0
+    )
+
+    active_phone_numbers = (
+        db.query(sql_func.count(GymPhoneNumber.id))
+        .filter(GymPhoneNumber.gym_id == gym_id, GymPhoneNumber.is_active.is_(True))
+        .scalar()
+        or 0
+    )
 
     messages_7d = (
         db.query(sql_func.count(MessageLog.id))
@@ -54,6 +70,8 @@ def get_kpis(db: Session, gym_id: int) -> KPIResponse:
     delivery_rate = (delivered / total_messages * 100) if total_messages > 0 else 0.0
 
     return KPIResponse(
+        total_members=total_members,
+        active_phone_numbers=active_phone_numbers,
         messages_sent_7d=messages_7d,
         messages_sent_30d=messages_30d,
         notification_delivery_rate=round(delivery_rate, 2),

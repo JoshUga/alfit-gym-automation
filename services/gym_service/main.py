@@ -36,3 +36,5 @@ def create_tables() -> None:
         columns = {col["name"] for col in inspector.get_columns("gyms")}
         if "onboarding_welcome_sent_at" not in columns:
             conn.execute(text("ALTER TABLE gyms ADD COLUMN onboarding_welcome_sent_at DATETIME NULL"))
+        if "preferred_currency" not in columns:
+            conn.execute(text("ALTER TABLE gyms ADD COLUMN preferred_currency VARCHAR(8) NOT NULL DEFAULT 'UGX'"))
