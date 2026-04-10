@@ -13,6 +13,16 @@ SMTP sending is managed through the `email-service` using EmailEngine account ma
 - Run account checks:
   - `POST /api/email/smtp/health-check`
 
+### Optional EmailEngine auto-init (no manual account setup)
+
+The email-service can auto-bootstrap one SMTP account at startup from environment variables:
+
+- `EMAILENGINE_AUTO_INIT=true` (default)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`
+- Optional: `SMTP_GYM_ID`, `SMTP_ACCOUNT_NAME`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`, `SMTP_SECURE`, `EMAILENGINE_INIT_ACCOUNT_ID`
+
+When `EMAILENGINE_API_TOKEN` is not provided, the service now generates a deterministic runtime token from SMTP bootstrap env vars.
+
 The system rotates active SMTP accounts automatically for outgoing email sends.
 
 ## Service Admin dashboard
@@ -21,6 +31,11 @@ A dedicated service admin dashboard is available at:
 
 - Standalone admin-service UI: `/admin/service/dashboard` (served by admin-service)
 - Backend APIs: `/api/v1/admin/service/*`
+
+Additional service-admin data operations:
+
+- Purge managed data (keep backups by default): `POST /api/v1/admin/service/data/purge`
+- Restore backup snapshot: `POST /api/v1/admin/service/backups/{backup_id}/restore`
 
 Default service-admin credentials (for bootstrap/demo):
 

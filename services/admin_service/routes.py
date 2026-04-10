@@ -18,6 +18,8 @@ from services.admin_service.schemas import (
     ServiceBackupResponse,
     ServiceBackupRestoreRequest,
     ServiceBackupRestoreResponse,
+    ServiceDataPurgeRequest,
+    ServiceDataPurgeResponse,
 )
 from services.admin_service import service
 
@@ -172,3 +174,14 @@ def service_admin_restore_backup(
     """Restore a full-system backup snapshot."""
     result = service.restore_system_backup(db, backup_id, clear_existing=data.clear_existing)
     return APIResponse(data=result, message="Backup restored")
+
+
+@router.post("/admin/service/data/purge", response_model=APIResponse[ServiceDataPurgeResponse])
+def service_admin_purge_data(
+    data: ServiceDataPurgeRequest,
+    _: bool = Depends(service.require_service_admin),
+    db: Session = Depends(get_session),
+):
+    """Delete all managed system data, preserving backups unless explicitly included."""
+    result = service.purge_system_data(db, include_backups=data.include_backups)
+    return APIResponse(data=ServiceDataPurgeResponse(**result), message="System data purged")

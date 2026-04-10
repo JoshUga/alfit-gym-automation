@@ -84,3 +84,12 @@ class ServiceBackupRestoreRequest(BaseModel):
 class ServiceBackupRestoreResponse(BaseModel):
     backup_id: int
     restored_tables: int
+
+
+class ServiceDataPurgeRequest(BaseModel):
+    include_backups: bool = False
+
+
+class ServiceDataPurgeResponse(BaseModel):
+    cleared_tables: int
+    include_backups: bool = False

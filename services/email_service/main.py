@@ -1,12 +1,16 @@
 """Email Service - Email sending and template management."""
 
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from shared.database import get_session_factory
 from shared.health import create_health_router
 from shared.exceptions import AlfitException, alfit_exception_handler
+from services.email_service import service
 from services.email_service.routes import router as email_router
 
 app = FastAPI(title="Alfit Email Service", version="0.1.0")
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,3 +23,19 @@ app.add_middleware(
 app.add_exception_handler(AlfitException, alfit_exception_handler)
 app.include_router(create_health_router("email-service"))
 app.include_router(email_router, prefix="/api/v1", tags=["Email"])
+
+
+@app.on_event("startup")
+def auto_init_emailengine() -> None:
+    """Bootstrap EmailEngine account mapping from environment variables."""
+    try:
+        session = get_session_factory()()
+    except Exception as exc:
+        logger.warning("Skipping EmailEngine auto-init because DB session could not be created: %s", exc)
+        return
+    try:
+        service.auto_initialize_emailengine(session)
+    except Exception as exc:
+        logger.warning("EmailEngine auto-init failed: %s", exc)
+    finally:
+        session.close()

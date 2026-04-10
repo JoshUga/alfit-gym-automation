@@ -10,7 +10,8 @@ from shared.database import Base
 from shared.auth import create_access_token
 from services.email_service.main import app
 from services.email_service.routes import get_session
-from services.email_service.models import EmailLog, EmailStatus
+from services.email_service.models import EmailLog, EmailStatus, SMTPAccount
+from services.email_service import service as email_service
 
 
 @pytest.fixture
@@ -126,3 +127,23 @@ class TestSendEmail:
         payload = response.json()["data"]["results"]
         assert len(payload) == 1
         assert payload[0]["health_status"] == "healthy"
+
+    def test_auto_initialize_emailengine_from_env(self, db, monkeypatch):
+        monkeypatch.setenv("EMAILENGINE_AUTO_INIT", "true")
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+        monkeypatch.setenv("SMTP_PORT", "587")
+        monkeypatch.setenv("SMTP_USERNAME", "noreply@example.com")
+        monkeypatch.setenv("SMTP_PASSWORD", "secret")
+        monkeypatch.setenv("SMTP_GYM_ID", "7")
+        monkeypatch.setenv("SMTP_ACCOUNT_NAME", "Auto SMTP")
+        monkeypatch.delenv("EMAILENGINE_API_TOKEN", raising=False)
+
+        result = email_service.auto_initialize_emailengine(db)
+        assert result["initialized"] is True
+        assert result["token_generated"] is True
+
+        account = db.query(SMTPAccount).filter(SMTPAccount.gym_id == 7).first()
+        assert account is not None
+        assert account.name == "Auto SMTP"
+        # Derived from SMTP_USERNAME by stripping non-alphanumeric characters and prefixing with "bootstrap-".
+        assert account.emailengine_account_id == "bootstrap-noreplyexamplecom"
