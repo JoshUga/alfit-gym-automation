@@ -9,6 +9,7 @@ from services.message_service.schemas import (
     IncomingMessageEvent,
     ProcessedMessageResponse,
     EvolutionUpsertWebhook,
+    OutboundWhatsAppRequest,
 )
 from services.message_service import service
 
@@ -67,3 +68,22 @@ def receive_evolution_upsert_with_event_path(
     )
     result = service.handle_evolution_upsert(db, patched)
     return APIResponse(data=result)
+
+
+@router.post("/messages/send", response_model=APIResponse[dict])
+def send_whatsapp_message(
+    data: OutboundWhatsAppRequest,
+    current_user: UserClaims = Depends(get_current_user),
+):
+    """Send an outbound WhatsApp message."""
+    result = service.send_outbound_whatsapp(data)
+    return APIResponse(data=result, message="WhatsApp message sent")
+
+
+@router.post("/messages/send/internal", response_model=APIResponse[dict])
+def send_whatsapp_message_internal(
+    data: OutboundWhatsAppRequest,
+):
+    """Internal service endpoint for outbound WhatsApp messages."""
+    result = service.send_outbound_whatsapp(data)
+    return APIResponse(data=result, message="WhatsApp message sent")

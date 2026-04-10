@@ -11,6 +11,7 @@ from services.message_service.schemas import (
     IncomingMessageEvent,
     ProcessedMessageResponse,
     EvolutionUpsertWebhook,
+    OutboundWhatsAppRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -268,3 +269,15 @@ def handle_evolution_upsert(db: Session, payload: EvolutionUpsertWebhook) -> dic
         "message_id": message_id,
         "reply_status": reply_status,
     }
+
+
+def send_outbound_whatsapp(data: OutboundWhatsAppRequest) -> dict:
+    """Send outbound WhatsApp notification messages."""
+    instance_name = (data.instance_name or "").strip()
+    if not instance_name:
+        gym_id = int(data.gym_id or 0)
+        if gym_id <= 0:
+            return {"status": "failed", "reason": "missing_instance_name_or_gym_id"}
+        instance_name = f"gym-{gym_id}"
+    _send_whatsapp_reply(instance_name=instance_name, to_number=data.phone_number, text=data.content)
+    return {"status": "sent", "instance_name": instance_name}

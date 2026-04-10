@@ -27,7 +27,8 @@ class TemplateResponse(BaseModel):
 
 
 class TemplatePreviewRequest(BaseModel):
-    content: str
+    content: Optional[str] = None
+    template_id: Optional[int] = None
     variables: Optional[dict] = None
 
 
@@ -59,3 +60,18 @@ class ScheduleResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class SessionReminderDispatchRequest(BaseModel):
+    gym_id: int
+    run_at: Optional[datetime] = None
+
+
+class SessionReminderDispatchResponse(BaseModel):
+    gym_id: int
+    run_at: datetime
+    whatsapp_sent: int
+    email_sent: int
+    whatsapp_failed: int
+    email_failed: int
+    skipped_no_email: int

@@ -82,6 +82,7 @@ export default function GymSetupPage() {
           value={gymEmail}
           onChange={(e) => setGymEmail(e.target.value)}
           className="input-field"
+          required
         />
         <input
           type="text"

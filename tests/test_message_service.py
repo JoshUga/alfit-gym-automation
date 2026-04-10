@@ -164,3 +164,19 @@ class TestEvolutionUpsertWebhook:
         assert response.status_code == 200
         assert response.json()["data"]["reply_status"] == "skipped_from_me"
         assert send_reply_mock.call_count == 0
+
+
+class TestOutboundWhatsApp:
+    def test_send_outbound_whatsapp_internal(self, client):
+        with patch("services.message_service.service._send_whatsapp_reply", return_value=None) as send_reply_mock:
+            response = client.post(
+                "/api/v1/messages/send/internal",
+                json={
+                    "gym_id": 1,
+                    "phone_number": "5511888888888",
+                    "content": "Reminder message",
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["data"]["status"] == "sent"
+        assert send_reply_mock.call_count == 1

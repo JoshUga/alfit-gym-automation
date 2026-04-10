@@ -126,6 +126,9 @@ export default function RegisterPage() {
     if (step === 1 && !gymName.trim()) {
       return 'Gym name is required';
     }
+    if (step === 1 && !gymEmail.trim()) {
+      return 'Gym email is required';
+    }
 
     if (step === 2 && !whatsAppPhone.trim()) {
       return 'WhatsApp number is required';
@@ -180,7 +183,7 @@ export default function RegisterPage() {
         name: gymName,
         address: gymAddress || undefined,
         phone: gymPhone || undefined,
-        email: gymEmail || undefined,
+        email: gymEmail,
       });
       const gymId = gymRes.data.data.id as number;
       setCreatedGymId(gymId);
@@ -361,10 +364,11 @@ export default function RegisterPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <input
                     type="email"
-                    placeholder="Gym email (optional)"
+                    placeholder="Gym email (required)"
                     value={gymEmail}
                     onChange={(e) => setGymEmail(e.target.value)}
                     className="w-full rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-500/30"
+                    required
                   />
                   <input
                     type="text"

@@ -15,3 +15,13 @@ class AuditLog(Base):
     resource_id = Column(String(100), nullable=True)
     details = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SystemBackup(Base):
+    __tablename__ = "system_backups"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    label = Column(String(255), nullable=True)
+    status = Column(String(50), nullable=False, default="completed")
+    payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
