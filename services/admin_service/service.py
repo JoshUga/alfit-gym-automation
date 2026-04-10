@@ -53,6 +53,7 @@ BACKUP_TABLES = [
 ]
 
 BACKUP_TABLE_SET = set(BACKUP_TABLES)
+TABLE_TOKEN_PATTERN = re.compile(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.]*)", flags=re.IGNORECASE)
 
 
 def _is_safe_identifier(value: str) -> bool:
@@ -73,9 +74,13 @@ def _table_candidates(table_name: str) -> list[str]:
     return [table_name, plain_name]
 
 
+def _extract_table_tokens(sql_query: str) -> list[str]:
+    return TABLE_TOKEN_PATTERN.findall(sql_query or "")
+
+
 def _safe_execute_count(db: Session, queries: list[str]) -> int:
     for sql_query in queries:
-        table_tokens = re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.]*)", sql_query, flags=re.IGNORECASE)
+        table_tokens = _extract_table_tokens(sql_query)
         if not table_tokens or not all(_is_safe_table_identifier(token) for token in table_tokens):
             continue
         try:
@@ -88,7 +93,7 @@ def _safe_execute_count(db: Session, queries: list[str]) -> int:
 
 def _fetch_rows_with_fallback(db: Session, queries: list[str]) -> list[dict]:
     for sql_query in queries:
-        table_tokens = re.findall(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.]*)", sql_query, flags=re.IGNORECASE)
+        table_tokens = _extract_table_tokens(sql_query)
         if not table_tokens or not all(_is_safe_table_identifier(token) for token in table_tokens):
             continue
         try:

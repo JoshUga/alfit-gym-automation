@@ -165,6 +165,7 @@ def _ensure_emailengine_account(account_id: str) -> bool:
 
 
 def auto_initialize_emailengine(db: Session) -> dict:
+    """Bootstrap EmailEngine from SMTP env vars when EMAILENGINE_AUTO_INIT is true (default)."""
     if not _env_bool("EMAILENGINE_AUTO_INIT", default=True):
         return {"initialized": False, "reason": "disabled"}
 
