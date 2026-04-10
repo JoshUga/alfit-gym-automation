@@ -222,6 +222,8 @@ def _restore_table(db: Session, table_name: str, rows: list[dict], clear_existin
         ]
         if not columns:
             continue
+        if table_name not in BACKUP_TABLE_SET:
+            return False
         safe_row = {column: row.get(column) for column in columns}
         placeholders = ", ".join([f":{column}" for column in columns])
         sql = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
