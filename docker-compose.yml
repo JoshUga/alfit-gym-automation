@@ -138,6 +138,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       JWT_SECRET_KEY: your-production-secret-key
       GYM_SERVICE_URL: http://gym-service:8000
+      WORKOUT_SERVICE_URL: http://workout-service:8000
     depends_on:
       mysql:
         condition: service_healthy

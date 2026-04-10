@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 from shared.database import get_db
 from shared.auth import get_current_user, UserClaims
 from shared.models import APIResponse
-from services.workout_service.schemas import WorkoutPlanGenerateRequest, WorkoutPlanResponse
+from services.workout_service.schemas import (
+    WorkoutPlanGenerateRequest,
+    WorkoutPlanUpdateRequest,
+    WorkoutPlanResponse,
+)
 from services.workout_service import service
 
 router = APIRouter()
@@ -38,3 +42,15 @@ def generate_member_workout_plan(
     """Generate and save a member workout plan using AI service."""
     result = service.generate_workout_plan(db, member_id, data)
     return APIResponse(data=result, message="Workout plan generated")
+
+
+@router.put("/workout-plans/{plan_id}", response_model=APIResponse[WorkoutPlanResponse])
+def update_workout_plan(
+    plan_id: int,
+    data: WorkoutPlanUpdateRequest,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Update a workout plan (used to edit XML structured plans)."""
+    result = service.update_workout_plan(db, plan_id, data)
+    return APIResponse(data=result, message="Workout plan updated")

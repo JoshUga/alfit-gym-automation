@@ -147,6 +147,15 @@ export const workoutService = {
       training_days?: string[];
     }
   ) => api.post(`/members/${memberId}/workout-plan/generate`, data),
+  update: (
+    planId: number,
+    data: {
+      member_name?: string;
+      target?: string;
+      training_days?: string[];
+      plan_text: string;
+    }
+  ) => api.put(`/workout-plans/${planId}`, data),
 };
 
 export const aiService = {

@@ -45,15 +45,35 @@ interface AttendanceRecord {
   member_id: number;
   attendance_date: string;
   status: 'present' | 'absent';
+  note?: string;
 }
 
 interface WorkoutPlan {
   id: number;
+  member_name?: string;
+  target?: string;
+  training_days?: string[];
   plan_text: string;
   provider?: string;
   model?: string;
   created_at?: string;
+  updated_at?: string;
 }
+
+interface WorkoutSessionView {
+  day: string;
+  warmup: string;
+  main: string;
+  conditioning: string;
+}
+
+interface WorkoutWeekView {
+  number: string;
+  focus: string;
+  sessions: WorkoutSessionView[];
+}
+
+type AttendanceCellStatus = 'present' | 'absent' | 'planned' | 'missed' | 'off';
 
 const currentBillingMonth = () => {
   const now = new Date();
@@ -66,6 +86,8 @@ function blankForm() {
 }
 
 const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+const CALENDAR_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function blankPaymentForm() {
   return { amount: '', currency: 'USD', paymentMethod: '', status: 'completed', billingMonth: currentBillingMonth(), note: '' };
@@ -82,6 +104,68 @@ function resolveTrainingDays(member: Member): string[] {
   }
 
   return [];
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function monthBounds(monthValue: string): { start: string; end: string } {
+  const [yearText, monthText] = monthValue.split('-');
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const startDate = new Date(Date.UTC(year, monthIndex, 1));
+  const endDate = new Date(Date.UTC(year, monthIndex + 1, 0));
+  return { start: isoDate(startDate), end: isoDate(endDate) };
+}
+
+function listMonthDates(monthValue: string): string[] {
+  const [yearText, monthText] = monthValue.split('-');
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const dates: string[] = [];
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dt = new Date(Date.UTC(year, monthIndex, day));
+    dates.push(isoDate(dt));
+  }
+  return dates;
+}
+
+function monthLeadingOffset(monthValue: string): number {
+  const [yearText, monthText] = monthValue.split('-');
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const firstDay = new Date(Date.UTC(year, monthIndex, 1)).getUTCDay();
+  return (firstDay + 6) % 7;
+}
+
+function dayNameFromIso(iso: string): string {
+  const dayIndex = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return WEEK_DAYS[(dayIndex + 6) % 7];
+}
+
+function parseWorkoutPlanXml(xmlText: string): WorkoutWeekView[] {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'application/xml');
+    if (doc.querySelector('parsererror')) {
+      return [];
+    }
+
+    return Array.from(doc.querySelectorAll('weekly_plan > week')).map((week) => ({
+      number: week.getAttribute('number') || '?',
+      focus: week.querySelector('focus')?.textContent?.trim() || 'General progression',
+      sessions: Array.from(week.querySelectorAll('session')).map((session) => ({
+        day: session.querySelector('day')?.textContent?.trim() || 'Planned day',
+        warmup: session.querySelector('warmup')?.textContent?.trim() || '',
+        main: session.querySelector('main')?.textContent?.trim() || '',
+        conditioning: session.querySelector('conditioning')?.textContent?.trim() || '',
+      })),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function MemberForm({
@@ -213,7 +297,12 @@ export default function MembersPage() {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [attendanceSummary, setAttendanceSummary] = useState<MemberAttendanceSummary | null>(null);
   const [recentAttendance, setRecentAttendance] = useState<AttendanceRecord[]>([]);
+  const [monthAttendance, setMonthAttendance] = useState<Record<string, 'present' | 'absent'>>({});
+  const [calendarMonth, setCalendarMonth] = useState(() => currentBillingMonth());
+  const [savingAttendanceDate, setSavingAttendanceDate] = useState<string | null>(null);
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null);
+  const [workoutXmlDraft, setWorkoutXmlDraft] = useState('');
+  const [savingWorkoutPlan, setSavingWorkoutPlan] = useState(false);
   const [loadingMemberDetail, setLoadingMemberDetail] = useState(false);
   const [generatingWorkoutPlan, setGeneratingWorkoutPlan] = useState(false);
   const [memberPayments, setMemberPayments] = useState<MemberPayment[]>([]);
@@ -223,6 +312,33 @@ export default function MembersPage() {
   useEffect(() => {
     void loadMembers();
   }, []);
+
+  useEffect(() => {
+    if (!gymId || !selectedMember || !isMemberDetailDrawerOpen) {
+      return;
+    }
+
+    const loadMonthlyAttendance = async () => {
+      try {
+        const { start, end } = monthBounds(calendarMonth);
+        const res = await attendanceService.listRecords(gymId, {
+          member_id: selectedMember.id,
+          start_date: start,
+          end_date: end,
+        });
+        const records = (res.data.data || []) as AttendanceRecord[];
+        const map: Record<string, 'present' | 'absent'> = {};
+        records.forEach((record) => {
+          map[record.attendance_date] = record.status;
+        });
+        setMonthAttendance(map);
+      } catch {
+        setMonthAttendance({});
+      }
+    };
+
+    void loadMonthlyAttendance();
+  }, [gymId, selectedMember, calendarMonth, isMemberDetailDrawerOpen]);
 
   const loadMembers = useCallback(async () => {
     setLoading(true);
@@ -234,10 +350,16 @@ export default function MembersPage() {
       if (storedGymId) {
         const parsedGymId = Number(storedGymId);
         if (Number.isFinite(parsedGymId)) {
-          setGymId(parsedGymId);
-          const membersRes = await memberService.list(parsedGymId);
-          setMembers(membersRes.data.data);
-          loadedFromCache = true;
+          try {
+            setGymId(parsedGymId);
+            const membersRes = await memberService.list(parsedGymId);
+            setMembers(membersRes.data.data);
+            loadedFromCache = true;
+          } catch {
+            // Cache can be stale (e.g. gym switched/deleted); force re-resolve from API.
+            localStorage.removeItem('active_gym_id');
+            setGymId(null);
+          }
         }
       }
 
@@ -430,23 +552,35 @@ export default function MembersPage() {
     setSelectedMember(member);
     setIsMemberDetailDrawerOpen(true);
     setLoadingMemberDetail(true);
+    setCalendarMonth(currentBillingMonth());
     setError('');
 
     try {
-      const [summaryRes, recordsRes, workoutRes] = await Promise.all([
+      const month = currentBillingMonth();
+      const { start, end } = monthBounds(month);
+      const [summaryRes, recordsRes, monthRecordsRes, workoutRes] = await Promise.all([
         attendanceService.memberSummary(gymId, member.id),
         attendanceService.listRecords(gymId, { member_id: member.id }),
+        attendanceService.listRecords(gymId, { member_id: member.id, start_date: start, end_date: end }),
         workoutService.getLatest(gymId, member.id),
       ]);
       setAttendanceSummary(summaryRes.data.data);
       setRecentAttendance((recordsRes.data.data || []).slice(0, 10));
+      const monthlyMap: Record<string, 'present' | 'absent'> = {};
+      ((monthRecordsRes.data.data || []) as AttendanceRecord[]).forEach((record) => {
+        monthlyMap[record.attendance_date] = record.status;
+      });
+      setMonthAttendance(monthlyMap);
       setWorkoutPlan(workoutRes.data.data || null);
+      setWorkoutXmlDraft(workoutRes.data.data?.plan_text || '');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to load member details');
       setAttendanceSummary(null);
       setRecentAttendance([]);
+      setMonthAttendance({});
       setWorkoutPlan(null);
+      setWorkoutXmlDraft('');
     } finally {
       setLoadingMemberDetail(false);
     }
@@ -468,12 +602,103 @@ export default function MembersPage() {
         training_days: resolveTrainingDays(selectedMember),
       });
       setWorkoutPlan(res.data.data);
+      setWorkoutXmlDraft(res.data.data.plan_text || '');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to generate workout plan');
     } finally {
       setGeneratingWorkoutPlan(false);
     }
+  };
+
+  const handleMarkAttendance = async (attendanceDate: string, status: 'present' | 'absent') => {
+    if (!gymId || !selectedMember) {
+      setError('Missing gym or member context');
+      return;
+    }
+
+    setSavingAttendanceDate(attendanceDate);
+    setError('');
+    try {
+      await attendanceService.createRecord({
+        gym_id: gymId,
+        member_id: selectedMember.id,
+        attendance_date: attendanceDate,
+        status,
+      });
+      setMonthAttendance((prev) => ({ ...prev, [attendanceDate]: status }));
+
+      const [summaryRes, recordsRes] = await Promise.all([
+        attendanceService.memberSummary(gymId, selectedMember.id),
+        attendanceService.listRecords(gymId, { member_id: selectedMember.id }),
+      ]);
+      setAttendanceSummary(summaryRes.data.data);
+      setRecentAttendance((recordsRes.data.data || []).slice(0, 10));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(msg || 'Unable to save attendance');
+    } finally {
+      setSavingAttendanceDate(null);
+    }
+  };
+
+  const handleSaveWorkoutPlan = async () => {
+    if (!workoutPlan || !selectedMember) {
+      setError('Generate a workout plan first before editing');
+      return;
+    }
+    if (!workoutXmlDraft.trim()) {
+      setError('Workout XML cannot be empty');
+      return;
+    }
+
+    setSavingWorkoutPlan(true);
+    setError('');
+    try {
+      const res = await workoutService.update(workoutPlan.id, {
+        member_name: selectedMember.name,
+        target: selectedMember.target,
+        training_days: resolveTrainingDays(selectedMember),
+        plan_text: workoutXmlDraft,
+      });
+      setWorkoutPlan(res.data.data);
+      setWorkoutXmlDraft(res.data.data.plan_text || workoutXmlDraft);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(msg || 'Unable to update workout plan');
+    } finally {
+      setSavingWorkoutPlan(false);
+    }
+  };
+
+  const selectedTrainingDays = selectedMember ? resolveTrainingDays(selectedMember) : [];
+  const calendarDates = listMonthDates(calendarMonth);
+  const leadingEmptyCells = Array.from({ length: monthLeadingOffset(calendarMonth) });
+  const todayIso = isoDate(new Date());
+  const parsedWorkoutWeeks = parseWorkoutPlanXml(workoutXmlDraft);
+
+  const attendanceStatusForDate = (dateIso: string): AttendanceCellStatus => {
+    const recorded = monthAttendance[dateIso];
+    if (recorded) {
+      return recorded;
+    }
+    const dayName = dayNameFromIso(dateIso);
+    const isPlannedDay = selectedTrainingDays.includes(dayName);
+    if (!isPlannedDay) {
+      return 'off';
+    }
+    if (dateIso < todayIso) {
+      return 'missed';
+    }
+    return 'planned';
+  };
+
+  const attendanceStatusClasses: Record<AttendanceCellStatus, string> = {
+    present: 'border-emerald-500/70 bg-emerald-500/15 text-emerald-200',
+    absent: 'border-red-500/70 bg-red-500/15 text-red-200',
+    planned: 'border-cyan-500/70 bg-cyan-500/15 text-cyan-200',
+    missed: 'border-amber-500/70 bg-amber-500/15 text-amber-200',
+    off: 'border-slate-700 bg-slate-900/40 text-slate-400',
   };
 
   const columns = [
@@ -645,6 +870,8 @@ export default function MembersPage() {
           setSelectedMember(null);
           setAttendanceSummary(null);
           setRecentAttendance([]);
+          setMonthAttendance({});
+          setWorkoutXmlDraft('');
           setWorkoutPlan(null);
         }}
         title={selectedMember ? `Member Details - ${selectedMember.name}` : 'Member Details'}
@@ -678,12 +905,70 @@ export default function MembersPage() {
             </div>
 
             <div className="border border-slate-800 bg-slate-900/50 p-4">
-              <h3 className="text-sm font-semibold text-slate-100">Recent Attendance</h3>
-              {recentAttendance.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-400">No attendance records yet.</p>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {recentAttendance.map((record) => (
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-100">Attendance Calendar</h3>
+                <input
+                  type="month"
+                  className="input-field max-w-[190px]"
+                  value={calendarMonth}
+                  onChange={(e) => setCalendarMonth(e.target.value)}
+                />
+              </div>
+
+              <div className="mb-3 grid grid-cols-5 gap-2 text-xs">
+                <span className="border border-emerald-500/70 bg-emerald-500/15 px-2 py-1 text-emerald-200">Present</span>
+                <span className="border border-red-500/70 bg-red-500/15 px-2 py-1 text-red-200">Absent</span>
+                <span className="border border-cyan-500/70 bg-cyan-500/15 px-2 py-1 text-cyan-200">Planned</span>
+                <span className="border border-amber-500/70 bg-amber-500/15 px-2 py-1 text-amber-200">Missed</span>
+                <span className="border border-slate-700 bg-slate-900/40 px-2 py-1 text-slate-400">Off day</span>
+              </div>
+
+              <div className="mb-2 grid grid-cols-7 gap-2 text-center text-[11px] uppercase tracking-wide text-slate-500">
+                {CALENDAR_DAY_LABELS.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-2">
+                {leadingEmptyCells.map((_, idx) => (
+                  <div key={`empty-${idx}`} className="border border-transparent p-2" />
+                ))}
+                {calendarDates.map((dateIso) => {
+                  const status = attendanceStatusForDate(dateIso);
+                  const isSaving = savingAttendanceDate === dateIso;
+                  return (
+                    <div key={dateIso} className={`border p-2 text-xs ${attendanceStatusClasses[status]}`}>
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="font-semibold">{Number(dateIso.slice(-2))}</span>
+                        <span className="uppercase text-[10px]">{status}</span>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          className="flex-1 border border-emerald-500/60 px-1 py-0.5 text-[10px] text-emerald-200 disabled:opacity-50"
+                          disabled={isSaving}
+                          onClick={() => void handleMarkAttendance(dateIso, 'present')}
+                        >
+                          P
+                        </button>
+                        <button
+                          type="button"
+                          className="flex-1 border border-red-500/60 px-1 py-0.5 text-[10px] text-red-200 disabled:opacity-50"
+                          disabled={isSaving}
+                          onClick={() => void handleMarkAttendance(dateIso, 'absent')}
+                        >
+                          A
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {recentAttendance.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Recent updates</p>
+                  {recentAttendance.slice(0, 5).map((record) => (
                     <div key={record.id} className="flex items-center justify-between border border-slate-800 px-3 py-2 text-sm">
                       <span className="text-slate-300">{record.attendance_date}</span>
                       <span className={record.status === 'present' ? 'text-emerald-300' : 'text-amber-300'}>{record.status}</span>
@@ -696,9 +981,19 @@ export default function MembersPage() {
             <div className="border border-slate-800 bg-slate-900/50 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-slate-100">Workout Plan</h3>
-                <button type="button" className="btn-primary" onClick={() => void handleGenerateWorkoutPlan()} disabled={generatingWorkoutPlan}>
-                  {generatingWorkoutPlan ? 'Generating...' : 'Generate with AI'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button" className="btn-primary" onClick={() => void handleGenerateWorkoutPlan()} disabled={generatingWorkoutPlan}>
+                    {generatingWorkoutPlan ? 'Generating...' : 'Regenerate with AI'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={!workoutPlan || savingWorkoutPlan}
+                    onClick={() => void handleSaveWorkoutPlan()}
+                  >
+                    {savingWorkoutPlan ? 'Saving...' : 'Save XML'}
+                  </button>
+                </div>
               </div>
               {workoutPlan ? (
                 <>
@@ -706,10 +1001,39 @@ export default function MembersPage() {
                     Source: {workoutPlan.provider || 'n/a'}
                     {workoutPlan.model ? ` · ${workoutPlan.model}` : ''}
                   </p>
-                  <pre className="whitespace-pre-wrap text-sm text-slate-200">{workoutPlan.plan_text}</pre>
+                  <textarea
+                    rows={14}
+                    className="input-field font-mono text-xs"
+                    value={workoutXmlDraft}
+                    onChange={(e) => setWorkoutXmlDraft(e.target.value)}
+                    placeholder="<workout_plan>...</workout_plan>"
+                  />
+                  {parsedWorkoutWeeks.length > 0 ? (
+                    <div className="mt-4 space-y-3">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Week to Week Plan</p>
+                      {parsedWorkoutWeeks.map((week) => (
+                        <div key={`week-${week.number}`} className="border border-slate-800 bg-slate-950/60 p-3">
+                          <p className="text-sm font-semibold text-cyan-200">Week {week.number}</p>
+                          <p className="mt-1 text-xs text-slate-400">Focus: {week.focus}</p>
+                          <div className="mt-2 space-y-2">
+                            {week.sessions.map((session, idx) => (
+                              <div key={`${week.number}-${session.day}-${idx}`} className="border border-slate-800/80 p-2">
+                                <p className="text-xs font-semibold text-slate-200">{session.day}</p>
+                                <p className="text-xs text-slate-400">Warmup: {session.warmup || 'N/A'}</p>
+                                <p className="text-xs text-slate-400">Main: {session.main || 'N/A'}</p>
+                                <p className="text-xs text-slate-400">Conditioning: {session.conditioning || 'N/A'}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-amber-300">XML preview unavailable. Keep valid XML to render week-by-week cards.</p>
+                  )}
                 </>
               ) : (
-                <p className="text-sm text-slate-400">No workout plan yet. Generate one with AI.</p>
+                <p className="text-sm text-slate-400">No workout plan yet. It should auto-generate when member is added, or you can generate now.</p>
               )}
             </div>
           </div>

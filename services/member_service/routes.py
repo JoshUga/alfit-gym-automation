@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 GYM_SERVICE_URL = os.getenv("GYM_SERVICE_URL", "http://gym-service:8000")
+WORKOUT_SERVICE_URL = os.getenv("WORKOUT_SERVICE_URL", "http://workout-service:8000")
 
 
 def get_session():
@@ -69,6 +70,41 @@ def _fire_welcome_message(
         return {"status": "error", "reason": str(exc)}
 
 
+def _fire_generate_workout_plan(
+    member_id: int,
+    gym_id: int,
+    member_name: str,
+    target: str | None,
+    training_days: list[str] | None,
+    auth_header: str | None,
+) -> dict:
+    """Best-effort call to workout_service to auto-generate initial member workout plan."""
+    if not auth_header:
+        return {"status": "skipped", "reason": "missing_auth_header"}
+
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            response = client.post(
+                f"{WORKOUT_SERVICE_URL}/api/v1/members/{member_id}/workout-plan/generate",
+                headers={"Authorization": auth_header, "Content-Type": "application/json"},
+                json={
+                    "gym_id": gym_id,
+                    "member_name": member_name,
+                    "target": target,
+                    "training_days": training_days,
+                },
+            )
+        if response.status_code >= 400:
+            return {
+                "status": "failed",
+                "reason": f"workout_service_http_{response.status_code}",
+            }
+        return {"status": "generated"}
+    except Exception as exc:
+        logger.warning("Could not auto-generate workout plan for member %s: %s", member_id, exc)
+        return {"status": "error", "reason": str(exc)}
+
+
 @router.post("/members", response_model=APIResponse[MemberResponse])
 def add_member(
     request: Request,
@@ -88,13 +124,35 @@ def add_member(
         monthly_payment_amount=result.monthly_payment_amount,
         auth_header=request.headers.get("Authorization"),
     )
+    workout_result = _fire_generate_workout_plan(
+        member_id=result.id,
+        gym_id=data.gym_id,
+        member_name=result.name,
+        target=result.target,
+        training_days=result.training_days,
+        auth_header=request.headers.get("Authorization"),
+    )
     welcome_status = str(welcome_result.get("status") or "unknown")
+    workout_status = str(workout_result.get("status") or "unknown")
+
+    workout_message = "workout plan generated"
+    if workout_status == "skipped":
+        workout_message = f"workout generation skipped ({workout_result.get('reason', 'unknown')})"
+    elif workout_status != "generated":
+        workout_message = f"workout generation not completed ({workout_result.get('reason', workout_status)})"
+
     if welcome_status == "sent":
-        message = "Member added and WhatsApp welcome sent"
+        message = f"Member added, WhatsApp welcome sent, and {workout_message}"
     elif welcome_status == "skipped":
-        message = f"Member added, WhatsApp welcome skipped ({welcome_result.get('reason', 'unknown')})"
+        message = (
+            "Member added, WhatsApp welcome skipped "
+            f"({welcome_result.get('reason', 'unknown')}), and {workout_message}"
+        )
     else:
-        message = f"Member added, WhatsApp welcome not sent ({welcome_result.get('reason', welcome_status)})"
+        message = (
+            "Member added, WhatsApp welcome not sent "
+            f"({welcome_result.get('reason', welcome_status)}), and {workout_message}"
+        )
     return APIResponse(data=result, message=message)
 
 
