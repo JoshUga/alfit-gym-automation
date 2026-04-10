@@ -275,7 +275,7 @@ class TestTrainerManagement:
         db.refresh(staff)
 
         staff_token = create_access_token(
-            {"sub": str(staff.id), "email": staff.email, "roles": ["gym_staff"], "owner_id": staff.id}
+            {"sub": str(staff.id), "email": staff.email, "roles": ["gym_staff"]}
         )
         response = client.post(
             "/auth/trainers",

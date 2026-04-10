@@ -34,3 +34,8 @@ def create_tables() -> None:
         columns = {col["name"] for col in inspector.get_columns("users")}
         if "parent_owner_id" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN parent_owner_id INTEGER NULL"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_users_parent_owner_id ON users(parent_owner_id)"
+            )
+        )

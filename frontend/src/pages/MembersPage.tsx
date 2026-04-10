@@ -1031,6 +1031,11 @@ export default function MembersPage() {
                     placeholder="<workout_plan>...</workout_plan>"
                     readOnly={isTrainer}
                   />
+                  {isTrainer && (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Workout XML is view-only for trainer accounts.
+                    </p>
+                  )}
                   {parsedWorkoutWeeks.length > 0 ? (
                     <div className="mt-4 space-y-3">
                       <p className="text-xs uppercase tracking-wide text-slate-500">Week to Week Plan</p>
