@@ -48,7 +48,7 @@ class SMTPAccountResponse(BaseModel):
     name: str
     emailengine_account_id: str
     is_active: bool
-    health_status: str
+    health_status: str = "unknown"
     last_health_check_at: Optional[datetime] = None
     last_used_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
