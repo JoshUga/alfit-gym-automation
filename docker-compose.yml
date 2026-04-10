@@ -273,7 +273,7 @@ services:
       REDIS_HOST: redis
       JWT_SECRET_KEY: your-production-secret-key
       SERVICE_ADMIN_USERNAME: ${SERVICE_ADMIN_USERNAME:-service-admin}
-      SERVICE_ADMIN_PASSWORD: ${SERVICE_ADMIN_PASSWORD:-service-admin-2026}
+      SERVICE_ADMIN_PASSWORD: ${SERVICE_ADMIN_PASSWORD:-change-this-service-admin-password-now}
     depends_on:
       mysql:
         condition: service_healthy

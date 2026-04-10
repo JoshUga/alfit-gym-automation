@@ -3,6 +3,7 @@
 import logging
 import os
 import secrets
+import re
 from datetime import datetime, timezone
 from fastapi import Header
 from sqlalchemy import text
@@ -36,7 +37,7 @@ SERVICE_NAMES = [
 ]
 
 SERVICE_ADMIN_USERNAME = os.getenv("SERVICE_ADMIN_USERNAME", "service-admin")
-SERVICE_ADMIN_PASSWORD = os.getenv("SERVICE_ADMIN_PASSWORD", "service-admin-2026")
+SERVICE_ADMIN_PASSWORD = os.getenv("SERVICE_ADMIN_PASSWORD", "change-this-service-admin-password-now")
 
 BACKUP_TABLES = [
     "alfit_gym.gyms",
@@ -52,6 +53,10 @@ BACKUP_TABLES = [
 ]
 
 BACKUP_TABLE_SET = set(BACKUP_TABLES)
+
+
+def _is_safe_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value or ""))
 
 
 def list_audit_logs(db: Session, limit: int = 100) -> list[AuditLogResponse]:
@@ -175,6 +180,8 @@ def list_service_admin_gyms(db: Session) -> list[ServiceAdminGymItem]:
 def create_system_backup(db: Session, label: str | None = None) -> ServiceBackupResponse:
     payload: dict[str, list[dict]] = {}
     for table in BACKUP_TABLES:
+        if table not in BACKUP_TABLE_SET:
+            continue
         try:
             rows = db.execute(text(f"SELECT * FROM {table}")).mappings().all()
             payload[table] = [dict(row) for row in rows]
@@ -208,11 +215,18 @@ def _restore_table(db: Session, table_name: str, rows: list[dict], clear_existin
     for row in rows:
         if not row:
             continue
-        columns = list(row.keys())
+        columns = [
+            str(column)
+            for column in row.keys()
+            if _is_safe_identifier(str(column))
+        ]
+        if not columns:
+            continue
+        safe_row = {column: row.get(column) for column in columns}
         placeholders = ", ".join([f":{column}" for column in columns])
         sql = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
         try:
-            db.execute(text(sql), row)
+            db.execute(text(sql), safe_row)
         except Exception:
             continue
     return True

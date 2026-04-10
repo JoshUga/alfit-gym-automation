@@ -62,7 +62,7 @@ class TestServiceAdminDashboard:
     def test_service_admin_login(self, client):
         response = client.post(
             "/api/v1/admin/service/login",
-            json={"username": "service-admin", "password": "service-admin-2026"},
+            json={"username": "service-admin", "password": "change-this-service-admin-password-now"},
         )
         assert response.status_code == 200
         assert response.json()["data"]["authenticated"] is True
@@ -72,7 +72,7 @@ class TestServiceAdminDashboard:
             "/api/v1/admin/service/overview",
             headers={
                 "X-Admin-Username": "service-admin",
-                "X-Admin-Password": "service-admin-2026",
+                "X-Admin-Password": "change-this-service-admin-password-now",
             },
         )
         assert response.status_code == 200
@@ -83,7 +83,7 @@ class TestServiceAdminDashboard:
     def test_service_backup_create_and_list(self, client):
         headers = {
             "X-Admin-Username": "service-admin",
-            "X-Admin-Password": "service-admin-2026",
+            "X-Admin-Password": "change-this-service-admin-password-now",
         }
         created = client.post(
             "/api/v1/admin/service/backups",

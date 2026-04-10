@@ -232,7 +232,7 @@ def _send_whatsapp(gym_id: int, phone_number: str, content: str) -> bool:
             )
         return response.status_code < 400
     except Exception as exc:
-        logger.warning("WhatsApp reminder send failed for gym %s phone %s: %s", gym_id, phone_number, exc)
+        logger.warning("WhatsApp reminder send failed for gym %s: %s", gym_id, exc)
         return False
 
 
@@ -252,7 +252,7 @@ def _send_email(gym_id: int, recipient: str, subject: str, reminder_kind: str, c
             )
         return response.status_code < 400
     except Exception as exc:
-        logger.warning("Email reminder send failed for gym %s recipient %s: %s", gym_id, recipient, exc)
+        logger.warning("Email reminder send failed for gym %s: %s", gym_id, exc)
         return False
 
 

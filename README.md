@@ -25,7 +25,7 @@ A dedicated service admin dashboard is available at:
 Default service-admin credentials (for bootstrap/demo):
 
 - Username: `service-admin`
-- Password: `service-admin-2026`
+- Password: set `SERVICE_ADMIN_PASSWORD` explicitly (do not use defaults in production)
 
 > Important: use HTTPS/TLS when calling service-admin endpoints because credentials are passed in request headers.
 
