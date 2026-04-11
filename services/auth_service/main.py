@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 from shared.health import create_health_router
 from shared.exceptions import AlfitException, alfit_exception_handler
 from shared.database import Base, get_engine
@@ -26,4 +27,13 @@ app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 @app.on_event("startup")
 def create_tables() -> None:
     """Create auth service tables if they do not exist."""
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        columns = {col["name"] for col in inspector.get_columns("users")}
+        if "parent_owner_id" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN parent_owner_id INTEGER NULL"))
+        index_names = {idx.get("name") for idx in inspector.get_indexes("users")}
+        if "idx_users_parent_owner_id" not in index_names:
+            conn.execute(text("CREATE INDEX idx_users_parent_owner_id ON users(parent_owner_id)"))

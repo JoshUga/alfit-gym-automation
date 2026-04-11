@@ -48,7 +48,8 @@ def get_my_gym(
     db: Session = Depends(get_session),
 ):
     """Get the authenticated owner's active gym."""
-    result = service.get_owner_gym(db, current_user.user_id)
+    owner_id = current_user.owner_id or current_user.user_id
+    result = service.get_owner_gym(db, owner_id)
     return APIResponse(data=result)
 
 

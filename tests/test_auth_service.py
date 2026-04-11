@@ -180,6 +180,7 @@ class TestGetCurrentUser:
         assert response.status_code == 200
         data = response.json()
         assert data["data"]["email"] == "me@example.com"
+        assert data["data"]["owner_id"] == user.id
 
     def test_get_me_unauthorized(self, client):
         response = client.get("/auth/me")
@@ -224,3 +225,67 @@ class TestChangePassword:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 401
+
+
+class TestTrainerManagement:
+    def test_create_and_list_trainers(self, client, db):
+        owner = User(
+            email="owner@example.com",
+            hashed_password=hash_password("ownerpassword123"),
+            full_name="Owner",
+            role=UserRole.GYM_OWNER,
+        )
+        db.add(owner)
+        db.commit()
+        db.refresh(owner)
+
+        owner_token = create_access_token(
+            {"sub": str(owner.id), "email": owner.email, "roles": ["gym_owner"], "owner_id": owner.id}
+        )
+        headers = {"Authorization": f"Bearer {owner_token}"}
+
+        create_response = client.post(
+            "/auth/trainers",
+            json={
+                "email": "trainer@example.com",
+                "password": "trainerpassword123",
+                "full_name": "Trainer One",
+            },
+            headers=headers,
+        )
+        assert create_response.status_code == 200
+        created = create_response.json()["data"]
+        assert created["email"] == "trainer@example.com"
+        assert created["role"] == "gym_staff"
+        assert created["owner_id"] == owner.id
+        created_user = db.query(User).filter(User.email == "trainer@example.com").first()
+        assert created_user is not None
+        assert created_user.parent_owner_id == owner.id
+
+        list_response = client.get("/auth/trainers", headers=headers)
+        assert list_response.status_code == 200
+        assert len(list_response.json()["data"]) == 1
+
+    def test_create_trainer_forbidden_for_non_owner(self, client, db):
+        staff = User(
+            email="staff@example.com",
+            hashed_password=hash_password("staffpassword123"),
+            full_name="Staff",
+            role=UserRole.GYM_STAFF,
+        )
+        db.add(staff)
+        db.commit()
+        db.refresh(staff)
+
+        staff_token = create_access_token(
+            {"sub": str(staff.id), "email": staff.email, "roles": ["gym_staff"]}
+        )
+        response = client.post(
+            "/auth/trainers",
+            json={
+                "email": "newtrainer@example.com",
+                "password": "trainerpassword123",
+            },
+            headers={"Authorization": f"Bearer {staff_token}"},
+        )
+        assert response.status_code == 403

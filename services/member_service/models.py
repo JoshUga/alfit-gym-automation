@@ -1,6 +1,6 @@
 """Member Service database models."""
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from shared.database import Base
@@ -32,6 +32,7 @@ class Member(Base):
 
     group_assignments = relationship("MemberGroupAssignment", back_populates="member", cascade="all, delete-orphan")
     payments = relationship("MemberPayment", back_populates="member", cascade="all, delete-orphan")
+    trainer_assignments = relationship("MemberTrainerAssignment", back_populates="member", cascade="all, delete-orphan")
 
 
 class MemberGroup(Base):
@@ -56,6 +57,19 @@ class MemberGroupAssignment(Base):
 
     member = relationship("Member", back_populates="group_assignments")
     group = relationship("MemberGroup", back_populates="assignments")
+
+
+class MemberTrainerAssignment(Base):
+    __tablename__ = "member_trainer_assignments"
+    __table_args__ = (UniqueConstraint("member_id", "trainer_user_id", name="uq_member_trainer"),)
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
+    trainer_user_id = Column(Integer, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    member = relationship("Member", back_populates="trainer_assignments")
+
 
 class MemberPaymentStatus(str, enum.Enum):
     PENDING = "pending"

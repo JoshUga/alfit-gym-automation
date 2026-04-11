@@ -13,10 +13,11 @@ security = HTTPBearer()
 class UserClaims:
     """Represents authenticated user claims from JWT."""
     
-    def __init__(self, user_id: int, email: str, roles: list[str]):
+    def __init__(self, user_id: int, email: str, roles: list[str], owner_id: int | None = None):
         self.user_id = user_id
         self.email = email
         self.roles = roles
+        self.owner_id = owner_id
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -57,11 +58,17 @@ def get_current_user(
     user_id = payload.get("sub")
     email = payload.get("email")
     roles = payload.get("roles", [])
+    owner_id = payload.get("owner_id")
     
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
     
-    return UserClaims(user_id=int(user_id), email=email, roles=roles)
+    return UserClaims(
+        user_id=int(user_id),
+        email=email,
+        roles=roles,
+        owner_id=int(owner_id) if owner_id is not None else None,
+    )
 
 
 def require_roles(*required_roles: str):
