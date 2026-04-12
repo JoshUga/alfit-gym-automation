@@ -20,6 +20,7 @@ class AuditLogResponse(BaseModel):
 class ServiceStatus(BaseModel):
     name: str
     status: str
+    reason: Optional[str] = None
     last_check: Optional[datetime] = None
 
 

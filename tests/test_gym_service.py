@@ -10,6 +10,7 @@ from shared.auth import create_access_token
 from services.gym_service.main import app
 from services.gym_service.routes import get_session
 from services.gym_service.models import Gym
+from services.gym_service.schemas import GymCreate
 from services.gym_service import service as gym_service
 
 
@@ -42,6 +43,10 @@ def auth_headers():
 
 
 class TestGymRegistration:
+    def test_gym_create_schema_allows_missing_email(self):
+        payload = GymCreate(name="No Email Gym")
+        assert payload.email is None
+
     def test_register_gym(self, client, auth_headers):
         response = client.post("/api/v1/gyms/register", json={
             "name": "Test Gym",
@@ -64,13 +69,14 @@ class TestGymRegistration:
         })
         assert response.status_code in [401, 403]
 
-    def test_register_gym_requires_email(self, client, auth_headers):
+    def test_register_gym_allows_missing_email(self, client, auth_headers):
         response = client.post("/api/v1/gyms/register", json={
             "name": "Test Gym",
             "address": "123 Main St",
             "phone": "+1234567890",
         }, headers=auth_headers)
-        assert response.status_code == 422
+        assert response.status_code == 200
+        assert response.json()["data"]["email"] is None
 
 
 class TestGymCRUD:

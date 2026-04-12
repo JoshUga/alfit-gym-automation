@@ -101,6 +101,69 @@ def get_runtime_config() -> AIRuntimeConfigResponse:
     )
 
 
+def run_startup_runtime_checks() -> dict:
+    """Run startup checks for AI runtime configuration and connectivity."""
+    runtime = get_runtime_config()
+    provider = _normalize_provider(runtime.provider)
+    model_name = runtime.model_name
+
+    if provider != AIProvider.OLLAMA:
+        configured = bool(_provider_api_key(provider).strip())
+        return {
+            "provider": provider.value,
+            "model": model_name,
+            "status": "healthy" if configured else "degraded",
+            "reason": None if configured else "missing_provider_api_key",
+        }
+
+    ollama_base = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+    fallback = _ollama_fallback_model(model_name)
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            tags_resp = client.get(f"{ollama_base}/api/tags")
+        if tags_resp.status_code >= 400:
+            return {
+                "provider": provider.value,
+                "model": model_name,
+                "status": "unhealthy",
+                "reason": f"ollama_tags_http_{tags_resp.status_code}",
+            }
+
+        payload = tags_resp.json() if tags_resp.content else {}
+        models = payload.get("models") if isinstance(payload, dict) else []
+        available_names = set()
+        if isinstance(models, list):
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or item.get("model") or "").strip()
+                if name:
+                    available_names.add(name)
+
+        target_model = model_name
+        if target_model not in available_names and fallback and fallback in available_names:
+            target_model = fallback
+
+        _generate_with_ollama(
+            model_name=target_model,
+            base_prompt="You are a health-check assistant.",
+            incoming_message="ping",
+        )
+        return {
+            "provider": provider.value,
+            "model": target_model,
+            "status": "healthy",
+            "reason": None,
+        }
+    except Exception as exc:
+        return {
+            "provider": provider.value,
+            "model": model_name,
+            "status": "unhealthy",
+            "reason": str(exc),
+        }
+
+
 def create_ai_config(db: Session, data: dict) -> None:
     """Deprecated: AI config is environment managed."""
     raise ValidationException(

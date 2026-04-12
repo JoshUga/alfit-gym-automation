@@ -5,6 +5,7 @@ import os
 import secrets
 import re
 from datetime import datetime, timezone
+import httpx
 from fastapi import Header
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -35,6 +36,26 @@ SERVICE_NAMES = [
     "email-service",
     "message-service",
 ]
+
+SERVICE_HEALTH_URLS = {
+    "auth-service": os.getenv("AUTH_SERVICE_URL", "http://auth-service:8000").rstrip("/") + "/health",
+    "gym-service": os.getenv("GYM_SERVICE_URL", "http://gym-service:8000").rstrip("/") + "/health",
+    "member-service": os.getenv("MEMBER_SERVICE_URL", "http://member-service:8000").rstrip("/") + "/health",
+    "notification-service": os.getenv("NOTIFICATION_SERVICE_URL", "http://notification-service:8000").rstrip("/") + "/health",
+    "ai-service": os.getenv("AI_SERVICE_URL", "http://ai-service:8000").rstrip("/") + "/health",
+    "billing-service": os.getenv("BILLING_SERVICE_URL", "http://billing-service:8000").rstrip("/") + "/health",
+    "analytics-service": os.getenv("ANALYTICS_SERVICE_URL", "http://analytics-service:8000").rstrip("/") + "/health",
+    "admin-service": os.getenv("ADMIN_SERVICE_URL", "http://admin-service:8000").rstrip("/") + "/health",
+    "storage-service": os.getenv("STORAGE_SERVICE_URL", "http://storage-service:8000").rstrip("/") + "/health",
+    "email-service": os.getenv("EMAIL_SERVICE_URL", "http://email-service:8000").rstrip("/") + "/health",
+    "message-service": os.getenv("MESSAGE_SERVICE_URL", "http://message-service:8000").rstrip("/") + "/health",
+}
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+AI_MODEL = os.getenv("AI_MODEL", "phi4-mini-reasoning")
+EMAILENGINE_BASE_URL = os.getenv("EMAILENGINE_BASE_URL", "http://emailengine:3000").rstrip("/")
+
+_STARTUP_SYSTEM_HEALTH: SystemHealthResponse | None = None
 
 SERVICE_ADMIN_USERNAME = os.getenv("SERVICE_ADMIN_USERNAME", "service-admin")
 SERVICE_ADMIN_PASSWORD = os.getenv("SERVICE_ADMIN_PASSWORD", "change-this-service-admin-password-now")
@@ -172,14 +193,116 @@ def create_audit_log(
     return AuditLogResponse.model_validate(log)
 
 
-def get_system_health() -> SystemHealthResponse:
-    """Get system health overview (placeholder)."""
+def _probe_service_health(service_name: str, health_url: str) -> ServiceStatus:
     now = datetime.now(timezone.utc)
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(health_url)
+        if response.status_code >= 400:
+            return ServiceStatus(
+                name=service_name,
+                status="unhealthy",
+                reason=f"http_{response.status_code}",
+                last_check=now,
+            )
+        payload = response.json() if response.content else {}
+        status = str((payload or {}).get("status") or "").lower()
+        if status in {"healthy", "ok", "up"}:
+            return ServiceStatus(name=service_name, status="healthy", last_check=now)
+        return ServiceStatus(
+            name=service_name,
+            status="degraded",
+            reason=f"unexpected_payload_status_{status or 'missing'}",
+            last_check=now,
+        )
+    except Exception as exc:
+        return ServiceStatus(
+            name=service_name,
+            status="unhealthy",
+            reason=str(exc),
+            last_check=now,
+        )
+
+
+def _probe_ollama_runtime() -> ServiceStatus:
+    now = datetime.now(timezone.utc)
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(f"{OLLAMA_BASE_URL}/api/tags")
+        if response.status_code >= 400:
+            return ServiceStatus(
+                name="ollama-runtime",
+                status="unhealthy",
+                reason=f"tags_endpoint_http_{response.status_code}",
+                last_check=now,
+            )
+        payload = response.json() if response.content else {}
+        models = payload.get("models") if isinstance(payload, dict) else []
+        available = set()
+        if isinstance(models, list):
+            for item in models:
+                if isinstance(item, dict):
+                    name = str(item.get("name") or item.get("model") or "").strip()
+                    if name:
+                        available.add(name)
+        if AI_MODEL and AI_MODEL not in available:
+            return ServiceStatus(
+                name="ollama-runtime",
+                status="degraded",
+                reason=f"model_not_loaded_{AI_MODEL}",
+                last_check=now,
+            )
+        return ServiceStatus(name="ollama-runtime", status="healthy", last_check=now)
+    except Exception as exc:
+        return ServiceStatus(name="ollama-runtime", status="unhealthy", reason=str(exc), last_check=now)
+
+
+def _probe_emailengine_runtime() -> ServiceStatus:
+    now = datetime.now(timezone.utc)
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(f"{EMAILENGINE_BASE_URL}/v1/stats")
+        if response.status_code >= 400:
+            return ServiceStatus(
+                name="emailengine-runtime",
+                status="unhealthy",
+                reason=f"http_{response.status_code}",
+                last_check=now,
+            )
+        return ServiceStatus(name="emailengine-runtime", status="healthy", last_check=now)
+    except Exception as exc:
+        return ServiceStatus(name="emailengine-runtime", status="unhealthy", reason=str(exc), last_check=now)
+
+
+def run_system_startup_test() -> SystemHealthResponse:
     statuses = [
-        ServiceStatus(name=name, status="healthy", last_check=now)
+        _probe_service_health(service_name=name, health_url=SERVICE_HEALTH_URLS[name])
         for name in SERVICE_NAMES
     ]
+    statuses.append(_probe_ollama_runtime())
+    statuses.append(_probe_emailengine_runtime())
     return SystemHealthResponse(services=statuses)
+
+
+def initialize_startup_system_test() -> SystemHealthResponse:
+    global _STARTUP_SYSTEM_HEALTH
+    if _STARTUP_SYSTEM_HEALTH is not None:
+        return _STARTUP_SYSTEM_HEALTH
+    _STARTUP_SYSTEM_HEALTH = run_system_startup_test()
+    unhealthy = [item for item in _STARTUP_SYSTEM_HEALTH.services if item.status != "healthy"]
+    if unhealthy:
+        logger.warning("Startup system test reported issues: %s", [item.model_dump() for item in unhealthy])
+    else:
+        logger.info("Startup system test passed for %d checks", len(_STARTUP_SYSTEM_HEALTH.services))
+    return _STARTUP_SYSTEM_HEALTH
+
+
+def get_system_health() -> SystemHealthResponse:
+    """Get latest system health overview from startup test and live checks."""
+    global _STARTUP_SYSTEM_HEALTH
+    if _STARTUP_SYSTEM_HEALTH is None:
+        _STARTUP_SYSTEM_HEALTH = initialize_startup_system_test()
+    return _STARTUP_SYSTEM_HEALTH
 
 
 def require_service_admin(

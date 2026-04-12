@@ -51,7 +51,7 @@ export const authService = {
 };
 
 export const gymService = {
-  register: (data: { name: string; address?: string; phone?: string; email: string; preferred_currency?: string }) =>
+  register: (data: { name: string; address?: string; phone?: string; email?: string; preferred_currency?: string }) =>
     api.post('/gyms/register', data),
   getMine: () => api.get('/gyms/me'),
   get: (id: number) => api.get(`/gyms/${id}`),
