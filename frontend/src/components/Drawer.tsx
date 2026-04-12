@@ -22,9 +22,9 @@ export default function Drawer({ isOpen, onClose, title, children }: DrawerProps
         aria-label="Close drawer"
       />
 
-      <aside
-        className={`absolute right-0 top-0 h-full w-full max-w-xl border-l p-6 shadow-2xl ${
-          isDark ? 'border-slate-800 bg-slate-950/95' : 'border-slate-200 bg-slate-50/95'
+        <aside
+          className={`absolute right-0 top-0 h-full w-full max-w-xl border-l p-6 shadow-2xl ${
+          isDark ? 'border-slate-800 bg-slate-950/95' : 'border-slate-200 bg-white/95'
         }`}
       >
         <div className={`mb-6 flex items-center justify-between border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>

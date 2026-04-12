@@ -34,6 +34,31 @@ EVOLUTION_UPSERT_WEBHOOK_URL = os.getenv(
     "http://message-service:8000/api/v1/messages/evolution-upsert",
 ).rstrip("/")
 logger = logging.getLogger(__name__)
+NUMBERED_OPTIONS_PATTERN = re.compile(r"\b1[\).].*\b2[\).]")
+MEMBER_WELCOME_BANNED_FRAGMENTS = [
+    "here is",
+    "example",
+    "as an ai",
+    "i can",
+    "i cannot",
+    "option 1",
+    "option 2",
+    "version 1",
+    "version 2",
+]
+ONBOARDING_WELCOME_BANNED_FRAGMENTS = [
+    "here is a sample",
+    "sample whatsapp",
+    "example message",
+    "whatsapp message in english",
+    "as an ai",
+    "i can",
+    "i cannot",
+    "option 1",
+    "option 2",
+    "version 1",
+    "version 2",
+]
 
 
 def _normalize_currency(value: str | None) -> str:
@@ -61,6 +86,57 @@ def _normalize_member_name(value: str | None) -> str:
     if lowered in placeholder_tokens:
         return "there"
     return raw
+
+
+def _normalize_phone_number(value: str | None) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip())
+
+
+def _upsert_whatsapp_phone_number(
+    db: Session,
+    gym_id: int,
+    instance_name: str,
+    phone_number: str | None,
+    is_active: bool,
+) -> None:
+    normalized_phone = _normalize_phone_number(phone_number)
+    if not normalized_phone:
+        logger.debug("Skipping WhatsApp phone upsert for gym %s because number is empty", gym_id)
+        return
+
+    phone = (
+        db.query(GymPhoneNumber)
+        .filter(
+            GymPhoneNumber.gym_id == gym_id,
+            GymPhoneNumber.phone_number == normalized_phone,
+        )
+        .first()
+    )
+    if not phone:
+        phone = (
+            db.query(GymPhoneNumber)
+            .filter(
+                GymPhoneNumber.gym_id == gym_id,
+                GymPhoneNumber.evolution_instance_id == instance_name,
+            )
+            .first()
+        )
+
+    if not phone:
+        phone = GymPhoneNumber(
+            gym_id=gym_id,
+            phone_number=normalized_phone,
+            label="WhatsApp",
+            is_active=is_active,
+            evolution_instance_id=instance_name,
+        )
+        db.add(phone)
+    else:
+        phone.phone_number = normalized_phone
+        phone.evolution_instance_id = instance_name
+        phone.is_active = is_active
+
+    db.commit()
 
 
 def register_gym(db: Session, gym_data: GymCreate, owner_id: int) -> GymResponse:
@@ -390,6 +466,13 @@ def connect_whatsapp_instance(
 
         connect_data = connect_resp.json() if connect_resp.content else {}
         qr_code, pairing_code = _extract_qr_and_pairing(connect_data)
+        _upsert_whatsapp_phone_number(
+            db=db,
+            gym_id=gym_id,
+            instance_name=instance_name,
+            phone_number=data.phone_number,
+            is_active=True,
+        )
 
         webhook_setup = _configure_evolution_upsert_webhook(client, api_key, instance_name)
         if not webhook_setup.get("configured"):
@@ -449,6 +532,22 @@ def get_whatsapp_connection_status(db: Session, gym_id: int) -> WhatsAppStatusRe
                     qr_code, pairing_code = _extract_qr_and_pairing(connect_data)
             except Exception as exc:
                 logger.debug("Failed to refresh QR for %s: %s", cred.instance_name, exc)
+
+        phone_for_sync = None
+        if isinstance(data.get("instance"), dict):
+            phone_for_sync = (
+                data.get("instance", {}).get("owner")
+                or data.get("instance", {}).get("number")
+                or data.get("instance", {}).get("phone")
+            )
+        phone_for_sync = phone_for_sync or data.get("owner") or data.get("number") or data.get("phone")
+        _upsert_whatsapp_phone_number(
+            db=db,
+            gym_id=gym_id,
+            instance_name=cred.instance_name,
+            phone_number=phone_for_sync,
+            is_active=_connected_status(status),
+        )
 
         return WhatsAppStatusResponse(
             instance_name=cred.instance_name,
@@ -511,16 +610,11 @@ def _generate_ai_member_welcome_copy(
             return None
 
         lower = cleaned.lower()
-        banned_fragments = [
-            "here is",
-            "example",
-            "as an ai",
-            "i can",
-            "i cannot",
-        ]
-        if any(fragment in lower for fragment in banned_fragments):
+        if any(fragment in lower for fragment in MEMBER_WELCOME_BANNED_FRAGMENTS):
             return None
         if cleaned.startswith("-") or cleaned.startswith("*"):
+            return None
+        if NUMBERED_OPTIONS_PATTERN.search(lower):
             return None
         if len(cleaned.split()) > 85:
             return None
@@ -704,18 +798,11 @@ def _generate_ai_onboarding_copy(gym_name: str, owner_name: str | None) -> dict:
             return None
 
         lower = cleaned.lower()
-        banned_fragments = [
-            "here is a sample",
-            "sample whatsapp",
-            "example message",
-            "whatsapp message in english",
-            "as an ai",
-            "i can",
-            "i cannot",
-        ]
-        if any(fragment in lower for fragment in banned_fragments):
+        if any(fragment in lower for fragment in ONBOARDING_WELCOME_BANNED_FRAGMENTS):
             return None
         if cleaned.startswith("-") or cleaned.startswith("*") or "\n-" in cleaned or "\n*" in cleaned:
+            return None
+        if NUMBERED_OPTIONS_PATTERN.search(lower):
             return None
         if len(cleaned.split()) > 70:
             return None

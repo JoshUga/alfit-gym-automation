@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { memberService, gymService, attendanceService } from '../services/api';
+import { attendanceService, gymService, memberService } from '../services/api';
+import { useThemeStore } from '../stores/themeStore';
 
 type AttendanceStatus = 'present' | 'absent';
 
@@ -13,80 +14,29 @@ interface AttendanceRecord {
 interface Member {
   id: number;
   name: string;
-}
-
-const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function formatMonthLabel(date: Date) {
-  return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-}
-
-function toISODate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function getMonthGrid(viewDate: Date) {
-  const year = viewDate.getFullYear();
-  const month = viewDate.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const firstWeekDay = firstDay.getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  const cells: Array<{ date: string; day: number; inCurrentMonth: boolean }> = [];
-
-  for (let i = 0; i < firstWeekDay; i += 1) {
-    const d = new Date(year, month, i - firstWeekDay + 1);
-    cells.push({ date: toISODate(d), day: d.getDate(), inCurrentMonth: false });
-  }
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    const d = new Date(year, month, day);
-    cells.push({ date: toISODate(d), day, inCurrentMonth: true });
-  }
-
-  while (cells.length % 7 !== 0) {
-    const d = new Date(year, month + 1, cells.length % 7 === 0 ? 1 : cells.length - (firstWeekDay + daysInMonth) + 1);
-    cells.push({ date: toISODate(d), day: d.getDate(), inCurrentMonth: false });
-  }
-
-  return cells;
+  training_days?: string[];
 }
 
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function dayNameFromIso(iso: string): string {
+  const dayIndex = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return weekDays[dayIndex];
+}
+
 export default function AttendancePage() {
+  const isDark = useThemeStore((state) => state.isDark);
   const [gymId, setGymId] = useState<number | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
-  const [records, setRecords] = useState<Array<{ member_name: string; date: string; status: AttendanceStatus }>>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState('');
-  const [date, setDate] = useState(today());
-  const [status, setStatus] = useState<AttendanceStatus>('present');
-  const [viewMonth, setViewMonth] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [selectedDate, setSelectedDate] = useState(today());
+  const [search, setSearch] = useState('');
+  const [savingMemberId, setSavingMemberId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  const memberMap = useMemo(() => {
-    return new Map(members.map((member) => [member.id, member.name]));
-  }, [members]);
-
-  const groupedByDate = useMemo(() => {
-    const map = new Map<string, Array<{ member_name: string; date: string; status: AttendanceStatus }>>();
-    records.forEach((record) => {
-      const bucket = map.get(record.date) || [];
-      bucket.push(record);
-      map.set(record.date, bucket);
-    });
-    return map;
-  }, [records]);
-
-  const monthCells = useMemo(() => getMonthGrid(viewMonth), [viewMonth]);
-  const selectedDateRecords = useMemo(() => groupedByDate.get(selectedDate) || [], [groupedByDate, selectedDate]);
 
   useEffect(() => {
     void loadData();
@@ -107,23 +57,12 @@ export default function AttendancePage() {
       }
       setGymId(resolvedGymId);
 
-      const memberRes = await memberService.list(resolvedGymId);
-      const nextMembers = (memberRes.data.data || []).map((member: { id: number; name: string }) => ({
-        id: member.id,
-        name: member.name,
-      }));
-      setMembers(nextMembers);
-      setSelectedMemberId(nextMembers.length > 0 ? String(nextMembers[0].id) : '');
-
-      const attendanceRes = await attendanceService.listRecords(resolvedGymId);
-      const attendanceRecords = (attendanceRes.data.data || []) as AttendanceRecord[];
-      setRecords(
-        attendanceRecords.map((record) => ({
-          member_name: nextMembers.find((member: Member) => member.id === record.member_id)?.name || `Member #${record.member_id}`,
-          date: record.attendance_date,
-          status: record.status,
-        }))
-      );
+      const [memberRes, attendanceRes] = await Promise.all([
+        memberService.list(resolvedGymId),
+        attendanceService.listRecords(resolvedGymId),
+      ]);
+      setMembers(memberRes.data.data || []);
+      setRecords(attendanceRes.data.data || []);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to load attendance data');
@@ -132,169 +71,134 @@ export default function AttendancePage() {
     }
   };
 
-  const refreshRecords = async (resolvedGymId: number, map = memberMap) => {
-    const attendanceRes = await attendanceService.listRecords(resolvedGymId);
-    const attendanceRecords = (attendanceRes.data.data || []) as AttendanceRecord[];
-    setRecords(
-      attendanceRecords.map((record) => ({
-        member_name: map.get(record.member_id) || `Member #${record.member_id}`,
-        date: record.attendance_date,
-        status: record.status,
-      }))
-    );
-  };
+  const memberStatusMap = useMemo(() => {
+    const map = new Map<number, AttendanceStatus>();
+    records
+      .filter((record) => record.attendance_date === selectedDate)
+      .forEach((record) => map.set(record.member_id, record.status));
+    return map;
+  }, [records, selectedDate]);
 
-  const handleRecord = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const visibleMembers = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return members;
+    return members.filter((member) => member.name.toLowerCase().includes(query));
+  }, [members, search]);
+
+  const selectedDayName = dayNameFromIso(selectedDate);
+
+  const stats = useMemo(() => {
+    const present = visibleMembers.filter((member) => memberStatusMap.get(member.id) === 'present').length;
+    const absent = visibleMembers.filter((member) => memberStatusMap.get(member.id) === 'absent').length;
+    const planned = visibleMembers.filter((member) => {
+      if (memberStatusMap.has(member.id)) return false;
+      return (member.training_days || []).includes(selectedDayName);
+    }).length;
+    const notMarked = visibleMembers.length - present - absent;
+    return { present, absent, planned, notMarked };
+  }, [memberStatusMap, selectedDayName, visibleMembers]);
+
+  const handleMark = async (memberId: number, status: AttendanceStatus) => {
     if (!gymId) {
       setError('Gym not found for attendance');
       return;
     }
-    const parsedMemberId = Number(selectedMemberId);
-    if (!parsedMemberId) {
-      setError('Select a member first');
-      return;
-    }
 
+    setSavingMemberId(memberId);
+    setError('');
     try {
       await attendanceService.createRecord({
         gym_id: gymId,
-        member_id: parsedMemberId,
-        attendance_date: date,
+        member_id: memberId,
+        attendance_date: selectedDate,
         status,
       });
-      await refreshRecords(gymId);
-      setError('');
+      const refresh = await attendanceService.listRecords(gymId);
+      setRecords(refresh.data.data || []);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to save attendance');
+    } finally {
+      setSavingMemberId(null);
     }
   };
 
+  const cardClass = isDark ? 'border-slate-800 bg-slate-900/55 text-slate-100' : 'border-slate-200 bg-white text-slate-900';
+
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold text-white">Attendance</h1>
-        <p className="mt-2 text-sm text-slate-400">Track member attendance and keep a clean check-in history.</p>
+    <div className="space-y-6">
+      <div>
+        <h1 className={`text-3xl font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Attendance</h1>
+        <p className={`mt-2 text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+          Daily operations view. Pick a date and review or mark attendance for all members in one place.
+        </p>
       </div>
 
-      {error && <div className="mb-4 border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+      {error && <div className={`rounded-xl border p-3 text-sm ${isDark ? 'border-red-500/40 bg-red-500/10 text-red-200' : 'border-red-300 bg-red-50 text-red-700'}`}>{error}</div>}
 
-      <div className="mb-6 border border-slate-800 bg-slate-900/50 p-4">
-        <form className="grid grid-cols-1 gap-3 sm:grid-cols-4" onSubmit={handleRecord}>
-          <select
-            className="input-field"
-            value={selectedMemberId}
-            onChange={(e) => setSelectedMemberId(e.target.value)}
-            required
-          >
-            {members.length === 0 ? (
-              <option value="">No members</option>
-            ) : (
-              members.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.name}
-                </option>
-              ))
-            )}
-          </select>
-          <input type="date" className="input-field" value={date} onChange={(e) => setDate(e.target.value)} required />
-          <select
-            className="input-field"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as AttendanceStatus)}
-          >
-            <option value="present">Present</option>
-            <option value="absent">Absent</option>
-          </select>
-          <button type="submit" className="btn-primary" disabled={loading || members.length === 0}>
-            Save Attendance
-          </button>
-        </form>
+      <div className={`grid grid-cols-1 gap-3 rounded-2xl border p-4 md:grid-cols-[220px_1fr] ${cardClass}`}>
+        <input
+          type="date"
+          className="input-field"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+        />
+        <input
+          type="text"
+          className="input-field"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search member by name"
+        />
       </div>
 
-      <div className="border border-slate-800 bg-slate-900/40 p-4">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-white">Monthly Attendance Calendar</h2>
-          <div className="flex items-center gap-2 text-sm">
-            <button
-              type="button"
-              className="border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200 hover:border-slate-500"
-              onClick={() => setViewMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-            >
-              Prev
-            </button>
-            <button
-              type="button"
-              className="border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200 hover:border-slate-500"
-              onClick={() => {
-                const now = new Date();
-                setViewMonth(new Date(now.getFullYear(), now.getMonth(), 1));
-                setSelectedDate(today());
-              }}
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              className="border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200 hover:border-slate-500"
-              onClick={() => setViewMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-            >
-              Next
-            </button>
-            <span className="ml-2 min-w-40 text-center font-medium text-cyan-300">{formatMonthLabel(viewMonth)}</span>
-          </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className={`rounded-xl border p-3 ${cardClass}`}><p className="text-xs opacity-70">Present</p><p className="text-2xl font-semibold">{stats.present}</p></div>
+        <div className={`rounded-xl border p-3 ${cardClass}`}><p className="text-xs opacity-70">Absent</p><p className="text-2xl font-semibold">{stats.absent}</p></div>
+        <div className={`rounded-xl border p-3 ${cardClass}`}><p className="text-xs opacity-70">Planned</p><p className="text-2xl font-semibold">{stats.planned}</p></div>
+        <div className={`rounded-xl border p-3 ${cardClass}`}><p className="text-xs opacity-70">Not Marked</p><p className="text-2xl font-semibold">{stats.notMarked}</p></div>
+      </div>
+
+      <div className={`rounded-2xl border ${cardClass}`}>
+        <div className={`grid grid-cols-[1fr_auto_auto_auto] gap-2 border-b px-4 py-3 text-xs uppercase tracking-[0.14em] ${isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
+          <span>Member</span>
+          <span>Status</span>
+          <span className="text-center">Present</span>
+          <span className="text-center">Absent</span>
         </div>
-
-        <div className="mb-2 grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-[0.1em] text-slate-400">
-          {WEEK_DAYS.map((day) => (
-            <div key={day} className="py-1">{day}</div>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-7 gap-2">
-          {monthCells.map((cell) => {
-            const dayRecords = groupedByDate.get(cell.date) || [];
-            const presentCount = dayRecords.filter((r) => r.status === 'present').length;
-            const absentCount = dayRecords.filter((r) => r.status === 'absent').length;
-            const isSelected = selectedDate === cell.date;
-
-            return (
-              <button
-                key={cell.date}
-                type="button"
-                onClick={() => setSelectedDate(cell.date)}
-                className={`min-h-24 border p-2 text-left transition ${
-                  isSelected
-                    ? 'border-cyan-400 bg-cyan-500/10'
-                    : cell.inCurrentMonth
-                      ? 'border-slate-800 bg-slate-950/60 hover:border-slate-600'
-                      : 'border-slate-900 bg-slate-950/30 text-slate-600'
-                }`}
-              >
-                <div className="text-sm font-medium">{cell.day}</div>
-                <div className="mt-2 space-y-1 text-[11px]">
-                  <div className="text-emerald-300">P: {presentCount}</div>
-                  <div className="text-amber-300">A: {absentCount}</div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-5 border border-slate-800 bg-slate-950/50 p-4">
-          <p className="text-sm font-medium text-slate-200">Details for {selectedDate}</p>
-          {selectedDateRecords.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-400">No attendance records for this date.</p>
+        <div className="divide-y divide-slate-200/20">
+          {loading ? (
+            <p className={`p-4 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Loading attendance...</p>
+          ) : visibleMembers.length === 0 ? (
+            <p className={`p-4 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>No matching members.</p>
           ) : (
-            <div className="mt-3 space-y-2">
-              {selectedDateRecords.map((record, idx) => (
-                <div key={`${record.member_name}-${record.date}-${idx}`} className="flex items-center justify-between border border-slate-800 px-3 py-2 text-sm">
-                  <span className="text-slate-200">{record.member_name}</span>
-                  <span className={record.status === 'present' ? 'text-emerald-300' : 'text-amber-300'}>{record.status}</span>
+            visibleMembers.map((member) => {
+              const status = memberStatusMap.get(member.id);
+              const planned = (member.training_days || []).includes(selectedDayName);
+              const saving = savingMemberId === member.id;
+
+              return (
+                <div key={member.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-4 py-3">
+                  <div>
+                    <p className={`text-sm font-medium ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{member.name}</p>
+                    <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                      Planned day: {planned ? 'Yes' : 'No'}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-xs ${
+                    status === 'present'
+                      ? isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'
+                      : status === 'absent'
+                        ? isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700'
+                        : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {status || 'not marked'}
+                  </span>
+                  <button type="button" aria-label={`Mark ${member.name} as present`} className="btn-secondary text-xs" disabled={saving} onClick={() => void handleMark(member.id, 'present')}>Present</button>
+                  <button type="button" aria-label={`Mark ${member.name} as absent`} className="btn-secondary text-xs" disabled={saving} onClick={() => void handleMark(member.id, 'absent')}>Absent</button>
                 </div>
-              ))}
-            </div>
+              );
+            })
           )}
         </div>
       </div>
