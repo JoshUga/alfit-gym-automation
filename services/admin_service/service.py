@@ -276,6 +276,8 @@ def run_system_startup_test() -> SystemHealthResponse:
 
 def initialize_startup_system_test() -> SystemHealthResponse:
     global _STARTUP_SYSTEM_HEALTH
+    if _STARTUP_SYSTEM_HEALTH is not None:
+        return _STARTUP_SYSTEM_HEALTH
     _STARTUP_SYSTEM_HEALTH = run_system_startup_test()
     unhealthy = [item for item in _STARTUP_SYSTEM_HEALTH.services if item.status != "healthy"]
     if unhealthy:
@@ -290,7 +292,7 @@ def get_system_health() -> SystemHealthResponse:
     global _STARTUP_SYSTEM_HEALTH
     if _STARTUP_SYSTEM_HEALTH is None:
         _STARTUP_SYSTEM_HEALTH = initialize_startup_system_test()
-    return run_system_startup_test()
+    return _STARTUP_SYSTEM_HEALTH
 
 
 def require_service_admin(
