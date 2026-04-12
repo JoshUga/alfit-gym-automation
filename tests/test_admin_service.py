@@ -53,7 +53,7 @@ class TestAuditLogs:
 
 class TestSystemHealth:
     def test_run_system_startup_test_collects_unhealthy_services(self, monkeypatch):
-        class _FakeResp:
+        class _FakeHealthCheckResponse:
             status_code = 503
             content = b'{"status":"down"}'
 
@@ -61,7 +61,7 @@ class TestSystemHealth:
             def json():
                 return {"status": "down"}
 
-        class _FakeClient:
+        class _FakeHttpxClient:
             def __init__(self, timeout):
                 self.timeout = timeout
 
@@ -72,9 +72,9 @@ class TestSystemHealth:
                 return False
 
             def get(self, url):
-                return _FakeResp()
+                return _FakeHealthCheckResponse()
 
-        monkeypatch.setattr(admin_service.httpx, "Client", _FakeClient)
+        monkeypatch.setattr(admin_service.httpx, "Client", _FakeHttpxClient)
         report = admin_service.run_system_startup_test()
         assert report.services
         assert any(item.status == "unhealthy" for item in report.services)

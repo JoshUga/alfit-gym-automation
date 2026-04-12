@@ -76,8 +76,9 @@ export default function RegisterPage() {
             void gymService.sendOnboardingWelcome(createdGymId, {
                 phone_number: whatsAppPhone,
                 owner_name: fullName || undefined,
-              }).catch(() => {
+              }).catch((sendError) => {
                 // Do not block redirect if welcome send fails.
+                console.error(`Failed to send onboarding welcome for gym ${createdGymId}`, sendError);
               });
           }
 

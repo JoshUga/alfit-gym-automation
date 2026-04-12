@@ -55,7 +55,7 @@ class TestAIConfig:
         monkeypatch.setenv("AI_MODEL", "missing-model")
         monkeypatch.setenv("AI_FALLBACK_MODEL", "fallback-model")
 
-        class _FakeResp:
+        class _FakeOllamaTagsResponse:
             status_code = 200
             content = b"{}"
 
@@ -63,7 +63,7 @@ class TestAIConfig:
             def json():
                 return {"models": [{"name": "fallback-model"}]}
 
-        class _FakeClient:
+        class _FakeHttpxClient:
             def __init__(self, timeout):
                 self.timeout = timeout
 
@@ -74,9 +74,9 @@ class TestAIConfig:
                 return False
 
             def get(self, url):
-                return _FakeResp()
+                return _FakeOllamaTagsResponse()
 
-        monkeypatch.setattr(ai_service.httpx, "Client", _FakeClient)
+        monkeypatch.setattr(ai_service.httpx, "Client", _FakeHttpxClient)
         called = {}
 
         def _fake_generate(model_name, base_prompt, incoming_message):

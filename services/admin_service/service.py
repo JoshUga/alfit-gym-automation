@@ -230,7 +230,12 @@ def _probe_ollama_runtime() -> ServiceStatus:
         with httpx.Client(timeout=10.0) as client:
             response = client.get(f"{OLLAMA_BASE_URL}/api/tags")
         if response.status_code >= 400:
-            return ServiceStatus(name="ollama-runtime", status="unhealthy", reason=f"http_{response.status_code}", last_check=now)
+            return ServiceStatus(
+                name="ollama-runtime",
+                status="unhealthy",
+                reason=f"tags_endpoint_http_{response.status_code}",
+                last_check=now,
+            )
         payload = response.json() if response.content else {}
         models = payload.get("models") if isinstance(payload, dict) else []
         available = set()
@@ -244,7 +249,7 @@ def _probe_ollama_runtime() -> ServiceStatus:
             return ServiceStatus(
                 name="ollama-runtime",
                 status="degraded",
-                reason=f"model_not_loaded:{AI_MODEL}",
+                reason=f"model_not_loaded_{AI_MODEL}",
                 last_check=now,
             )
         return ServiceStatus(name="ollama-runtime", status="healthy", last_check=now)
@@ -258,7 +263,12 @@ def _probe_emailengine_runtime() -> ServiceStatus:
         with httpx.Client(timeout=10.0) as client:
             response = client.get(f"{EMAILENGINE_BASE_URL}/v1/stats")
         if response.status_code >= 400:
-            return ServiceStatus(name="emailengine-runtime", status="unhealthy", reason=f"http_{response.status_code}", last_check=now)
+            return ServiceStatus(
+                name="emailengine-runtime",
+                status="unhealthy",
+                reason=f"http_{response.status_code}",
+                last_check=now,
+            )
         return ServiceStatus(name="emailengine-runtime", status="healthy", last_check=now)
     except Exception as exc:
         return ServiceStatus(name="emailengine-runtime", status="unhealthy", reason=str(exc), last_check=now)
