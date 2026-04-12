@@ -44,5 +44,14 @@ def auto_init_emailengine() -> None:
         service.auto_initialize_emailengine(session)
     except Exception as exc:
         logger.warning("EmailEngine auto-init failed: %s", exc)
+    try:
+        health_report = service.run_smtp_health_checks(session)
+        unhealthy = [item for item in health_report.results if item.health_status != "healthy"]
+        if unhealthy:
+            logger.warning("SMTP startup health check found issues: %s", [item.model_dump() for item in unhealthy])
+        else:
+            logger.info("SMTP startup health check passed for %d account(s)", len(health_report.results))
+    except Exception as exc:
+        logger.warning("SMTP startup health check failed: %s", exc)
     finally:
         session.close()

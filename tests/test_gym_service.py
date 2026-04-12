@@ -64,13 +64,14 @@ class TestGymRegistration:
         })
         assert response.status_code in [401, 403]
 
-    def test_register_gym_requires_email(self, client, auth_headers):
+    def test_register_gym_allows_missing_email(self, client, auth_headers):
         response = client.post("/api/v1/gyms/register", json={
             "name": "Test Gym",
             "address": "123 Main St",
             "phone": "+1234567890",
         }, headers=auth_headers)
-        assert response.status_code == 422
+        assert response.status_code == 200
+        assert response.json()["data"]["email"] is None
 
 
 class TestGymCRUD:

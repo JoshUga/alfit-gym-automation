@@ -8,6 +8,7 @@ from shared.health import create_health_router
 from shared.exceptions import AlfitException, alfit_exception_handler
 from shared.database import Base, get_engine
 from services.admin_service import models  # noqa: F401
+from services.admin_service import service as admin_service
 from services.admin_service.routes import router as admin_router
 
 app = FastAPI(title="Alfit Admin Service", version="0.1.0")
@@ -29,6 +30,7 @@ app.include_router(admin_router, prefix="/api/v1", tags=["Admin"])
 def create_tables() -> None:
   """Create admin service tables if they do not exist."""
   Base.metadata.create_all(bind=get_engine())
+  admin_service.initialize_startup_system_test()
 
 
 @app.get("/admin/service/dashboard", response_class=HTMLResponse)

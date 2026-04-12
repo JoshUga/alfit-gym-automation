@@ -9,7 +9,7 @@ class GymCreate(BaseModel):
     name: str
     address: Optional[str] = None
     phone: Optional[str] = None
-    email: EmailStr
+    email: Optional[EmailStr] = None
     preferred_currency: Optional[str] = "UGX"
 
 

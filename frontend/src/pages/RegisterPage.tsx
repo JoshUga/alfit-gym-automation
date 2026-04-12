@@ -31,7 +31,6 @@ export default function RegisterPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState('');
   const [setupDone, setSetupDone] = useState(false);
-  const [onboardingMessageSent, setOnboardingMessageSent] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const pollingInFlightRef = useRef(false);
@@ -72,27 +71,22 @@ export default function RegisterPage() {
 
         setConnectionStatus(status || 'pending_connection');
         if (isConnectedStatus(status)) {
-          if (!onboardingMessageSent && whatsAppPhone && !onboardingSendStartedRef.current) {
+          if (whatsAppPhone && !onboardingSendStartedRef.current) {
             onboardingSendStartedRef.current = true;
-            try {
-              await gymService.sendOnboardingWelcome(createdGymId, {
+            void gymService.sendOnboardingWelcome(createdGymId, {
                 phone_number: whatsAppPhone,
                 owner_name: fullName || undefined,
+              }).catch(() => {
+                // Do not block redirect if welcome send fails.
               });
-            } catch {
-              // Do not block redirect if welcome send fails.
-            } finally {
-              if (!cancelled) {
-                setOnboardingMessageSent(true);
-              }
-            }
           }
 
           pollingComplete = true;
           if (intervalId !== null) {
             window.clearInterval(intervalId);
           }
-          redirectTimeout = window.setTimeout(() => navigate('/app'), 800);
+          navigate('/app');
+          return;
         }
       } catch {
         if (!cancelled) {
@@ -117,7 +111,7 @@ export default function RegisterPage() {
         window.clearTimeout(redirectTimeout);
       }
     };
-  }, [createdGymId, navigate, setupDone, onboardingMessageSent, whatsAppPhone, fullName]);
+  }, [createdGymId, navigate, setupDone, whatsAppPhone, fullName]);
 
   const validateStep = (step: number) => {
     if (step === 0) {
@@ -135,10 +129,6 @@ export default function RegisterPage() {
     if (step === 1 && !gymName.trim()) {
       return 'Gym name is required';
     }
-    if (step === 1 && !gymEmail.trim()) {
-      return 'Gym email is required';
-    }
-
     if (step === 2 && !whatsAppPhone.trim()) {
       return 'WhatsApp number is required';
     }
@@ -171,7 +161,6 @@ export default function RegisterPage() {
     }
 
     setSetupDone(false);
-    setOnboardingMessageSent(false);
     onboardingSendStartedRef.current = false;
     pollingInFlightRef.current = false;
     setCreatedGymId(null);
@@ -192,7 +181,7 @@ export default function RegisterPage() {
         name: gymName,
         address: gymAddress || undefined,
         phone: gymPhone || undefined,
-        email: gymEmail,
+        email: gymEmail.trim() || undefined,
         preferred_currency: gymCurrency || 'UGX',
       });
       const gymId = gymRes.data.data.id as number;
@@ -375,11 +364,10 @@ export default function RegisterPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <input
                     type="email"
-                    placeholder="Gym email (required)"
+                    placeholder="Gym email (optional)"
                     value={gymEmail}
                     onChange={(e) => setGymEmail(e.target.value)}
                     className="w-full rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-500/30"
-                    required
                   />
                   <input
                     type="text"
@@ -451,7 +439,8 @@ export default function RegisterPage() {
                   )}
                 </div>
                 <p className="mt-4 text-sm text-slate-300">
-                  Once connection becomes active, Alfit will detect it automatically, send your onboarding welcome message, and redirect you to the dashboard.
+                  Open WhatsApp on your phone, go to <span className="font-semibold">Menu → Linked devices → Link a device</span>, then scan this QR code.
+                  When the status becomes <span className="font-semibold">Open</span>, you will go straight to the dashboard while onboarding messages continue in the background.
                 </p>
               </div>
             )}
