@@ -167,11 +167,35 @@ export default function DashboardPage() {
   };
 
   const currency = gym?.preferred_currency || localStorage.getItem('active_gym_currency') || 'UGX';
-  const totalMembers = kpis?.total_members ?? members.length;
-  const activePhoneNumbers = kpis?.active_phone_numbers ?? phoneNumbers.filter((phone) => phone.is_active).length;
-  const messagesSent7d = kpis?.messages_sent_7d ?? 0;
-  const messagesSent30d = kpis?.messages_sent_30d ?? 0;
-  const deliveryRate = kpis?.notification_delivery_rate ?? 0;
+  const memberCountLive = members.length;
+  const activePhoneNumbersLive = phoneNumbers.filter((phone) => phone.is_active).length;
+
+  const nowMs = Date.now();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  const outgoingLogs = messageLogs.filter((log) => log.message_type === 'outgoing');
+  const outgoing7dLive = outgoingLogs.filter((log) => {
+    if (!log.created_at) {
+      return false;
+    }
+    const logMs = new Date(log.created_at).getTime();
+    return Number.isFinite(logMs) && nowMs - logMs <= sevenDaysMs;
+  }).length;
+  const outgoing30dLive = outgoingLogs.filter((log) => {
+    if (!log.created_at) {
+      return false;
+    }
+    const logMs = new Date(log.created_at).getTime();
+    return Number.isFinite(logMs) && nowMs - logMs <= thirtyDaysMs;
+  }).length;
+  const deliveredOutgoingLive = outgoingLogs.filter((log) => log.status === 'delivered').length;
+  const deliveryRateLive = outgoingLogs.length > 0 ? (deliveredOutgoingLive / outgoingLogs.length) * 100 : 0;
+
+  const totalMembers = Math.max(kpis?.total_members ?? 0, memberCountLive);
+  const activePhoneNumbers = Math.max(kpis?.active_phone_numbers ?? 0, activePhoneNumbersLive);
+  const messagesSent7d = Math.max(kpis?.messages_sent_7d ?? 0, outgoing7dLive);
+  const messagesSent30d = Math.max(kpis?.messages_sent_30d ?? 0, outgoing30dLive);
+  const deliveryRate = Math.max(kpis?.notification_delivery_rate ?? 0, deliveryRateLive);
 
   const todayKey = localDateKey(new Date());
   const weeklyDates = useMemo(() => {

@@ -3,9 +3,7 @@
 from datetime import datetime, timedelta, timezone, date
 from sqlalchemy import func as sql_func, cast, Date
 from sqlalchemy.orm import Session
-from services.gym_service.models import GymPhoneNumber
-from services.member_service.models import Member
-from services.analytics_service.models import MessageLog, MessageType
+from services.analytics_service.models import MessageLog, MessageType, GymPhoneNumber, Member
 from services.analytics_service.schemas import (
     KPIResponse,
     MessageLogResponse,
