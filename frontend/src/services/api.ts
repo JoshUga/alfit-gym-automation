@@ -64,6 +64,25 @@ export const gymService = {
   getWhatsAppStatus: (id: number) => api.get(`/gyms/${id}/whatsapp/status`),
   sendOnboardingWelcome: (id: number, data: { phone_number: string; owner_name?: string }) =>
     api.post(`/gyms/${id}/whatsapp/send-onboarding-welcome`, data),
+  getSmtpSettings: (id: number) => api.get(`/gyms/${id}/smtp-settings`),
+  updateSmtpSettings: (
+    id: number,
+    data: {
+      host: string;
+      port: number;
+      username: string;
+      password: string;
+      from_email: string;
+      from_name?: string;
+      secure: boolean;
+      starttls: boolean;
+      is_active: boolean;
+    }
+  ) => api.put(`/gyms/${id}/smtp-settings`, data),
+  testSmtpSettings: (id: number) => api.post(`/gyms/${id}/smtp-settings/test`),
+  createDomainCheckout: (id: number, data: { domain_name: string; years: number }) =>
+    api.post(`/gyms/${id}/domains/checkout`, data),
+  getDomainCheckoutStatus: (reference: string) => api.get(`/domains/${reference}/status`),
 };
 
 export const memberService = {
@@ -77,6 +96,7 @@ export const memberService = {
     training_days: string[];
     target: string;
     monthly_payment_amount: number;
+    trainer_user_ids?: number[];
     weekly_schedule?: Array<{ day: string; start_time: string; end_time: string; activity: string }>;
   }) =>
     api.post('/members', data),

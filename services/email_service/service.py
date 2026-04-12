@@ -2,12 +2,16 @@
 
 import logging
 import os
+import smtplib
+import ssl
 import time
 from datetime import datetime, timezone
+from email.message import EmailMessage
+from email.utils import formataddr
 import httpx
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from services.email_service.models import EmailLog, EmailStatus, SMTPAccount
+from services.email_service.models import EmailLog, EmailStatus, SMTPAccount, GymSMTPSettings
 from services.email_service.schemas import (
     SendEmailRequest,
     EmailLogResponse,
@@ -15,11 +19,67 @@ from services.email_service.schemas import (
     SMTPAccountResponse,
     SMTPHealthCheckResponse,
     SMTPHealthCheckResult,
+    GymSMTPSettingsUpsert,
+    GymSMTPSettingsResponse,
 )
 
 logger = logging.getLogger(__name__)
 EMAILENGINE_BASE_URL = os.getenv("EMAILENGINE_BASE_URL", "").rstrip("/")
 EMAILENGINE_API_TOKEN = os.getenv("EMAILENGINE_API_TOKEN", "").strip()
+
+
+def _smtp_configured(config: dict | None = None) -> bool:
+    cfg = config or {}
+    return bool(
+        str(cfg.get("host") or os.getenv("SMTP_HOST", "")).strip()
+        and str(cfg.get("username") or os.getenv("SMTP_USERNAME", "")).strip()
+        and str(cfg.get("password") or os.getenv("SMTP_PASSWORD", "")).strip()
+    )
+
+
+def _send_via_smtp(data: SendEmailRequest, config: dict | None = None) -> str:
+    cfg = config or {}
+    smtp_host = str(cfg.get("host") or os.getenv("SMTP_HOST", "")).strip()
+    smtp_username = str(cfg.get("username") or os.getenv("SMTP_USERNAME", "")).strip()
+    smtp_password = str(cfg.get("password") or os.getenv("SMTP_PASSWORD", "")).strip()
+    smtp_port_raw = str(cfg.get("port") or os.getenv("SMTP_PORT", "587")).strip()
+    smtp_port = int(smtp_port_raw) if smtp_port_raw.isdigit() else 587
+    smtp_secure = bool(cfg["secure"]) if "secure" in cfg else _env_bool("SMTP_SECURE", default=False)
+    smtp_starttls = bool(cfg["starttls"]) if "starttls" in cfg else _env_bool("SMTP_STARTTLS", default=not smtp_secure)
+
+    if not smtp_host or not smtp_username or not smtp_password:
+        raise RuntimeError("smtp_not_configured")
+
+    sender_email = str(cfg.get("from_email") or os.getenv("SMTP_FROM_EMAIL", "")).strip() or smtp_username
+    sender_name = str(cfg.get("from_name") or os.getenv("SMTP_FROM_NAME", "")).strip() or sender_email
+
+    preview = preview_email_template(data.template_name, data.template_data)
+    html_content = preview.get("html_content", "")
+
+    message = EmailMessage()
+    message["Subject"] = data.subject
+    message["From"] = formataddr((sender_name, sender_email))
+    message["To"] = str(data.recipient)
+    message.set_content("This email requires an HTML-capable mail client.")
+    message.add_alternative(html_content, subtype="html")
+
+    timeout = 20
+    if smtp_secure:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=timeout, context=context) as server:
+            server.login(smtp_username, smtp_password)
+            server.send_message(message)
+        return "smtp"
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout) as server:
+        server.ehlo()
+        if smtp_starttls:
+            context = ssl.create_default_context()
+            server.starttls(context=context)
+            server.ehlo()
+        server.login(smtp_username, smtp_password)
+        server.send_message(message)
+    return "smtp"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -33,11 +93,106 @@ def _current_emailengine_api_token() -> str:
     return EMAILENGINE_API_TOKEN
 
 
+def _resolve_smtp_config(db: Session, gym_id: int | None) -> dict | None:
+    if gym_id is not None:
+        row = (
+            db.query(GymSMTPSettings)
+            .filter(GymSMTPSettings.gym_id == gym_id, GymSMTPSettings.is_active.is_(True))
+            .first()
+        )
+        if row:
+            return {
+                "host": row.host,
+                "port": row.port,
+                "username": row.username,
+                "password": row.password,
+                "from_email": row.from_email,
+                "from_name": row.from_name,
+                "secure": row.secure,
+                "starttls": row.starttls,
+            }
+    return None
+
+
+def get_gym_smtp_settings(db: Session, gym_id: int) -> GymSMTPSettingsResponse | None:
+    row = db.query(GymSMTPSettings).filter(GymSMTPSettings.gym_id == gym_id).first()
+    if not row:
+        return None
+    return GymSMTPSettingsResponse(
+        gym_id=row.gym_id,
+        host=row.host,
+        port=row.port,
+        username=row.username,
+        from_email=row.from_email,
+        from_name=row.from_name,
+        secure=row.secure,
+        starttls=row.starttls,
+        is_active=row.is_active,
+        has_password=bool(row.password),
+    )
+
+
+def upsert_gym_smtp_settings(db: Session, gym_id: int, data: GymSMTPSettingsUpsert) -> GymSMTPSettingsResponse:
+    row = db.query(GymSMTPSettings).filter(GymSMTPSettings.gym_id == gym_id).first()
+    if not row:
+        row = GymSMTPSettings(gym_id=gym_id)
+        db.add(row)
+
+    row.host = data.host.strip()
+    row.port = data.port
+    row.username = data.username.strip()
+    row.password = data.password
+    row.from_email = str(data.from_email)
+    row.from_name = data.from_name.strip() if data.from_name else None
+    row.secure = data.secure
+    row.starttls = data.starttls
+    row.is_active = data.is_active
+    db.commit()
+
+    return GymSMTPSettingsResponse(
+        gym_id=row.gym_id,
+        host=row.host,
+        port=row.port,
+        username=row.username,
+        from_email=row.from_email,
+        from_name=row.from_name,
+        secure=row.secure,
+        starttls=row.starttls,
+        is_active=row.is_active,
+        has_password=bool(row.password),
+    )
+
+
+def test_gym_smtp_settings(db: Session, gym_id: int) -> dict:
+    config = _resolve_smtp_config(db, gym_id)
+    if not config:
+        return {"ok": False, "reason": "smtp_settings_not_configured"}
+
+    test_payload = SendEmailRequest(
+        gym_id=gym_id,
+        recipient=config.get("from_email"),
+        subject="Alfit SMTP test",
+        template_name="smtp_test",
+        template_data={"message": "SMTP test message"},
+    )
+
+    try:
+        _send_via_smtp(test_payload, config)
+        return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "reason": str(exc)}
+
+
 def _pick_next_smtp_account(db: Session, gym_id: int | None) -> SMTPAccount | None:
     query = db.query(SMTPAccount).filter(SMTPAccount.is_active.is_(True))
     if gym_id is not None:
         query = query.filter(or_(SMTPAccount.gym_id == gym_id, SMTPAccount.gym_id.is_(None)))
-    candidates = query.order_by(SMTPAccount.last_used_at.asc().nullsfirst(), SMTPAccount.id.asc()).all()
+    # MySQL does not support "NULLS FIRST" syntax; emulate it with IS NULL sorting.
+    candidates = query.order_by(
+        SMTPAccount.last_used_at.is_(None).desc(),
+        SMTPAccount.last_used_at.asc(),
+        SMTPAccount.id.asc(),
+    ).all()
     healthy = [a for a in candidates if (a.health_status or "").lower() in {"healthy", "unknown"}]
     return healthy[0] if healthy else (candidates[0] if candidates else None)
 
@@ -54,17 +209,18 @@ def _send_via_emailengine(account: SMTPAccount | None, data: SendEmailRequest) -
     if not EMAILENGINE_BASE_URL or not account:
         return "smtp-unconfigured"
     html_content = preview_email_template(data.template_name, data.template_data).get("html_content", "")
+    payload = {
+        "to": [{"address": str(data.recipient)}],
+        "subject": data.subject,
+        "text": "",
+        "html": html_content,
+        "gateway": account.emailengine_account_id,
+    }
     with httpx.Client(timeout=20.0) as client:
         response = client.post(
             f"{EMAILENGINE_BASE_URL}/v1/account/{account.emailengine_account_id}/submit",
             headers=_build_emailengine_headers(),
-            json={
-                "to": [str(data.recipient)],
-                "subject": data.subject,
-                "text": "",
-                "html": html_content,
-                "gateway": account.emailengine_account_id,
-            },
+            json=payload,
         )
     if response.status_code >= 400:
         raise RuntimeError(f"emailengine_send_failed_{response.status_code}")
@@ -267,10 +423,26 @@ def send_email(db: Session, data: SendEmailRequest) -> EmailLogResponse:
     logger.info("Sending email to %s with template %s", data.recipient, data.template_name)
 
     status = EmailStatus.FAILED
-    provider = "smtp-unconfigured"
+    prefer_direct_smtp = _env_bool("EMAIL_PREFER_DIRECT_SMTP", default=True)
+    smtp_config = _resolve_smtp_config(db, data.gym_id)
+    smtp_ready = _smtp_configured(smtp_config)
+    emailengine_ready = bool(EMAILENGINE_BASE_URL and account)
+
+    if smtp_ready and prefer_direct_smtp:
+        provider = "smtp"
+    elif emailengine_ready:
+        provider = "emailengine"
+    elif smtp_ready:
+        provider = "smtp"
+    else:
+        provider = "smtp-unconfigured"
+
     try:
-        provider = _send_via_emailengine(account, data)
-        if provider == "emailengine":
+        if provider == "smtp":
+            _send_via_smtp(data, smtp_config)
+            status = EmailStatus.SENT
+        elif provider == "emailengine":
+            _send_via_emailengine(account, data)
             status = EmailStatus.SENT
     except Exception as exc:
         logger.warning("Email send failed for %s: %s", data.recipient, exc)
@@ -362,4 +534,9 @@ def preview_email_template(template_name: str, template_data: dict | None = None
     if template_data:
         for key, value in template_data.items():
             content += f"<p>{key}: {value}</p>"
+    return {"subject": f"Preview: {template_name}", "html_content": content}
+    if template_data:
+        for key, value in template_data.items():
+            content += f"<p>{key}: {value}</p>"
+    return {"subject": f"Preview: {template_name}", "html_content": content}
     return {"subject": f"Preview: {template_name}", "html_content": content}

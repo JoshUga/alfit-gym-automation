@@ -20,6 +20,10 @@ from services.gym_service.schemas import (
     WhatsAppSendWelcomeResponse,
     WhatsAppOnboardingWelcomeRequest,
     WhatsAppOnboardingWelcomeResponse,
+    GymSMTPSettingsUpdate,
+    GymSMTPSettingsResponse,
+    DomainCheckoutCreate,
+    DomainCheckoutResponse,
 )
 from services.gym_service import service
 
@@ -38,7 +42,7 @@ def register_gym(
     db: Session = Depends(get_session),
 ):
     """Register a new gym."""
-    result = service.register_gym(db, gym_data, current_user.user_id)
+    result = service.register_gym(db, gym_data, current_user.user_id, current_user.email)
     return APIResponse(data=result, message="Gym registered successfully")
 
 
@@ -232,3 +236,58 @@ def send_onboarding_welcome_message(
         data=WhatsAppOnboardingWelcomeResponse(**result),
         message="Onboarding welcome message processed",
     )
+
+
+@router.get(
+    "/gyms/{gym_id}/smtp-settings",
+    response_model=APIResponse[GymSMTPSettingsResponse | None],
+)
+def get_gym_smtp_settings(
+    gym_id: int,
+    current_user: UserClaims = Depends(get_current_user),
+):
+    """Get gym SMTP settings."""
+    result = service.get_gym_smtp_settings(gym_id)
+    return APIResponse(data=result)
+
+
+@router.put(
+    "/gyms/{gym_id}/smtp-settings",
+    response_model=APIResponse[GymSMTPSettingsResponse],
+)
+def upsert_gym_smtp_settings(
+    gym_id: int,
+    data: GymSMTPSettingsUpdate,
+    current_user: UserClaims = Depends(get_current_user),
+):
+    """Create/update gym SMTP settings."""
+    result = service.upsert_gym_smtp_settings(gym_id, data.model_dump())
+    return APIResponse(data=result, message="SMTP settings saved")
+
+
+@router.post(
+    "/gyms/{gym_id}/smtp-settings/test",
+    response_model=APIResponse[dict],
+)
+def test_gym_smtp_settings(
+    gym_id: int,
+    current_user: UserClaims = Depends(get_current_user),
+):
+    """Test gym SMTP settings."""
+    result = service.test_gym_smtp_settings(gym_id)
+    message = "SMTP test successful" if result.get("ok") else "SMTP test failed"
+    return APIResponse(data=result, message=message)
+
+
+@router.post(
+    "/gyms/{gym_id}/domains/checkout",
+    response_model=APIResponse[DomainCheckoutResponse],
+)
+def create_domain_checkout(
+    gym_id: int,
+    data: DomainCheckoutCreate,
+    current_user: UserClaims = Depends(get_current_user),
+):
+    """Create a PayGate checkout link for domain purchase."""
+    result = service.create_domain_checkout(gym_id, data.domain_name, data.years)
+    return APIResponse(data=result, message="Domain checkout created")

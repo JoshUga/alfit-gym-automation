@@ -126,31 +126,6 @@ services:
     networks:
       - alfit-network
 
-  emailengine:
-    image: postalsys/emailengine:latest
-    command:
-      - node
-      - server.js
-      - --dbs.redis=redis://host.docker.internal:6379/8
-      - --api.port=3000
-      - --api.host=0.0.0.0
-    depends_on:
-      redis:
-        condition: service_started
-    ports:
-      - "3000:3000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    environment:
-      EENGINE_PORT: 3000
-      EENGINE_HOST: 0.0.0.0
-      EENGINE_API_PROXY: "false"
-      EENGINE_REQUIRE_API_AUTH: "true"
-      EENGINE_PREPARED_TOKEN: g6JpZNlANzcwY2UxYWU0YjdiZDk0M2M1YmRhOTg5YjYxNGJhNTIzNzUzNTcxMDg3YzlmMmE5OGJiMzE4YjU0OTFmMjhlNKZzY29wZXORoSqrZGVzY3JpcHRpb261YWxmaXQgYm9vdHN0cmFwIHRva2Vu
-      EENGINE_SECRET: alfit-emailengine-secret
-    networks:
-      - alfit-network
-
   member-service:
     build:
       context: .
@@ -321,8 +296,6 @@ services:
       MYSQL_DATABASE: alfit_email
       RABBITMQ_HOST: rabbitmq
       JWT_SECRET_KEY: your-production-secret-key
-      EMAILENGINE_BASE_URL: http://emailengine:3000
-      EMAILENGINE_API_TOKEN: 111122223333444455556666777788889999aaaabbbbccccddddeeeeffff0000
       SMTP_HOST: smtp-relay.brevo.com
       SMTP_PORT: 587
       SMTP_USERNAME: a7ac85001@smtp-brevo.com
@@ -330,13 +303,9 @@ services:
       SMTP_FROM_EMAIL: gym@withmexo.space
       SMTP_FROM_NAME: Alfit Gym
       SMTP_SECURE: "false"
-      EMAILENGINE_BOOTSTRAP_MAX_RETRIES: 20
-      EMAILENGINE_BOOTSTRAP_RETRY_DELAY_SECONDS: 2
     depends_on:
       mysql:
         condition: service_healthy
-      emailengine:
-        condition: service_started
     networks:
       - alfit-network
 

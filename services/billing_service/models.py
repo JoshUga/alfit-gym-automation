@@ -63,3 +63,28 @@ class Payment(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     subscription = relationship("Subscription", back_populates="payments")
+
+
+class DomainOrder(Base):
+    __tablename__ = "domain_orders"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    gym_id = Column(Integer, nullable=False, index=True)
+    domain_name = Column(String(255), nullable=False, index=True)
+    years = Column(Integer, nullable=False, default=1)
+    amount = Column(Float, nullable=False)
+    currency = Column(String(10), nullable=False, default="USD")
+    provider = Column(String(50), nullable=False, default="paygate")
+    payment_reference = Column(String(255), nullable=False, unique=True, index=True)
+    checkout_url = Column(String(1000), nullable=False)
+    callback_url = Column(String(1000), nullable=True)
+    address_in = Column(String(255), nullable=True)
+    polygon_address_in = Column(String(255), nullable=True)
+    ipn_token = Column(String(1024), nullable=True)
+    paid_value_coin = Column(String(100), nullable=True)
+    paid_coin = Column(String(50), nullable=True)
+    txid_in = Column(String(255), nullable=True)
+    txid_out = Column(String(255), nullable=True)
+    value_forwarded_coin = Column(String(100), nullable=True)
+    status = Column(String(30), nullable=False, default="pending")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

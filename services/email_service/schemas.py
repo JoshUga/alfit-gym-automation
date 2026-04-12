@@ -70,3 +70,28 @@ class SMTPHealthCheckResult(BaseModel):
 
 class SMTPHealthCheckResponse(BaseModel):
     results: list[SMTPHealthCheckResult]
+
+
+class GymSMTPSettingsUpsert(BaseModel):
+    host: str
+    port: int = 587
+    username: str
+    password: str
+    from_email: EmailStr
+    from_name: Optional[str] = None
+    secure: bool = False
+    starttls: bool = True
+    is_active: bool = True
+
+
+class GymSMTPSettingsResponse(BaseModel):
+    gym_id: int
+    host: str
+    port: int
+    username: str
+    from_email: str
+    from_name: Optional[str] = None
+    secure: bool
+    starttls: bool
+    is_active: bool
+    has_password: bool = True

@@ -29,7 +29,7 @@ app.include_router(email_router, prefix="/api/v1", tags=["Email"])
 
 @app.on_event("startup")
 def auto_init_emailengine() -> None:
-    """Bootstrap EmailEngine account mapping from environment variables."""
+    """Bootstrap EmailEngine account mapping from environment variables when enabled."""
     try:
         Base.metadata.create_all(bind=get_engine())
     except Exception as exc:
@@ -40,6 +40,12 @@ def auto_init_emailengine() -> None:
     except Exception as exc:
         logger.warning("Skipping EmailEngine auto-init because DB session could not be created: %s", exc)
         return
+
+    if not service.EMAILENGINE_BASE_URL:
+        logger.info("EmailEngine not configured; using direct SMTP mode when SMTP env vars are provided")
+        session.close()
+        return
+
     try:
         service.auto_initialize_emailengine(session)
     except Exception as exc:

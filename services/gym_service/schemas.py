@@ -112,3 +112,42 @@ class WhatsAppOnboardingWelcomeResponse(BaseModel):
     model: Optional[str] = None
     email_status: Optional[str] = None
     email_reason: Optional[str] = None
+
+
+class GymSMTPSettingsUpdate(BaseModel):
+    host: str
+    port: int = 587
+    username: str
+    password: str
+    from_email: EmailStr
+    from_name: Optional[str] = None
+    secure: bool = False
+    starttls: bool = True
+    is_active: bool = True
+
+
+class GymSMTPSettingsResponse(BaseModel):
+    gym_id: int
+    host: str
+    port: int
+    username: str
+    from_email: str
+    from_name: Optional[str] = None
+    secure: bool
+    starttls: bool
+    is_active: bool
+    has_password: bool = True
+
+
+class DomainCheckoutCreate(BaseModel):
+    domain_name: str
+    years: int = 1
+
+
+class DomainCheckoutResponse(BaseModel):
+    domain_name: str
+    years: int
+    amount: float
+    currency: str
+    checkout_url: str
+    reference: str

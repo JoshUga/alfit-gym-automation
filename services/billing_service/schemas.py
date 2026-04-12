@@ -50,3 +50,29 @@ class PaymentResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class DomainCheckoutCreate(BaseModel):
+    gym_id: int
+    domain_name: str
+    years: int = 1
+
+
+class DomainCheckoutResponse(BaseModel):
+    domain_name: str
+    years: int
+    amount: float
+    currency: str
+    checkout_url: str
+    reference: str
+    ipn_token: Optional[str] = None
+
+
+class DomainPaymentStatusResponse(BaseModel):
+    reference: str
+    status: str
+    domain_name: str
+    checkout_url: str
+    txid_out: Optional[str] = None
+    value_coin: Optional[str] = None
+    coin: Optional[str] = None

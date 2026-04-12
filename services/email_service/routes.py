@@ -14,6 +14,8 @@ from services.email_service.schemas import (
     SMTPAccountResponse,
     SMTPHealthCheckRequest,
     SMTPHealthCheckResponse,
+    GymSMTPSettingsUpsert,
+    GymSMTPSettingsResponse,
 )
 from services.email_service import service
 
@@ -98,3 +100,38 @@ def smtp_health_check(
     """Run SMTP health checks via EmailEngine."""
     result = service.run_smtp_health_checks(db, data.gym_id, data.account_id)
     return APIResponse(data=result)
+
+
+@router.get("/email/smtp/settings/{gym_id}", response_model=APIResponse[GymSMTPSettingsResponse | None])
+def get_gym_smtp_settings(
+    gym_id: int,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Get SMTP settings for a specific gym."""
+    result = service.get_gym_smtp_settings(db, gym_id)
+    return APIResponse(data=result)
+
+
+@router.put("/email/smtp/settings/{gym_id}", response_model=APIResponse[GymSMTPSettingsResponse])
+def upsert_gym_smtp_settings(
+    gym_id: int,
+    data: GymSMTPSettingsUpsert,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Create or update SMTP settings for a specific gym."""
+    result = service.upsert_gym_smtp_settings(db, gym_id, data)
+    return APIResponse(data=result, message="SMTP settings saved")
+
+
+@router.post("/email/smtp/settings/{gym_id}/test", response_model=APIResponse[dict])
+def test_gym_smtp_settings(
+    gym_id: int,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Send a test email using gym SMTP settings."""
+    result = service.test_gym_smtp_settings(db, gym_id)
+    message = "SMTP test successful" if result.get("ok") else "SMTP test failed"
+    return APIResponse(data=result, message=message)

@@ -22,6 +22,7 @@ class MemberCreate(BaseModel):
     target: str
     monthly_payment_amount: int
     weekly_schedule: Optional[list[ScheduleEntry]] = None
+    trainer_user_ids: list[int] = Field(default_factory=list)
 
 
 class MemberUpdate(BaseModel):

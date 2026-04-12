@@ -120,6 +120,14 @@ def add_member(db: Session, data: MemberCreate) -> MemberResponse:
     db.add(member)
     db.commit()
     db.refresh(member)
+
+    trainer_ids = sorted({int(tid) for tid in (data.trainer_user_ids or []) if int(tid) > 0})
+    if trainer_ids:
+        for trainer_id in trainer_ids:
+            db.add(MemberTrainerAssignment(member_id=member.id, trainer_user_id=trainer_id))
+        db.commit()
+        db.refresh(member)
+
     return _member_to_response(member)
 
 

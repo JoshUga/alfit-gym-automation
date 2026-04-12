@@ -29,6 +29,7 @@ AI_MODEL = os.getenv("AI_MODEL", "qwen2.5:0.5b").strip()
 AI_FALLBACK_MODEL = os.getenv("AI_FALLBACK_MODEL", "tinyllama").strip()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
 EMAIL_SERVICE_URL = os.getenv("EMAIL_SERVICE_URL", "http://email-service:8000").rstrip("/")
+BILLING_SERVICE_URL = os.getenv("BILLING_SERVICE_URL", "http://billing-service:8000").rstrip("/")
 EVOLUTION_UPSERT_WEBHOOK_URL = os.getenv(
     "EVOLUTION_UPSERT_WEBHOOK_URL",
     "http://message-service:8000/api/v1/messages/evolution-upsert",
@@ -59,6 +60,57 @@ ONBOARDING_WELCOME_BANNED_FRAGMENTS = [
     "version 1",
     "version 2",
 ]
+
+
+def get_gym_smtp_settings(gym_id: int) -> dict | None:
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(f"{EMAIL_SERVICE_URL}/api/v1/email/smtp/settings/{gym_id}")
+        if response.status_code >= 400:
+            return None
+        payload = response.json() if response.content else {}
+        return payload.get("data") if isinstance(payload, dict) else None
+    except Exception as exc:
+        logger.warning("Could not fetch SMTP settings for gym %s: %s", gym_id, exc)
+        return None
+
+
+def upsert_gym_smtp_settings(gym_id: int, data: dict) -> dict:
+    with httpx.Client(timeout=15.0) as client:
+        response = client.put(
+            f"{EMAIL_SERVICE_URL}/api/v1/email/smtp/settings/{gym_id}",
+            headers={"Content-Type": "application/json"},
+            json=data,
+        )
+    if response.status_code >= 400:
+        raise ValidationException(f"smtp_settings_update_failed_{response.status_code}")
+    payload = response.json() if response.content else {}
+    return payload.get("data") if isinstance(payload, dict) else {}
+
+
+def test_gym_smtp_settings(gym_id: int) -> dict:
+    with httpx.Client(timeout=20.0) as client:
+        response = client.post(
+            f"{EMAIL_SERVICE_URL}/api/v1/email/smtp/settings/{gym_id}/test",
+            headers={"Content-Type": "application/json"},
+        )
+    if response.status_code >= 400:
+        raise ValidationException(f"smtp_test_failed_{response.status_code}")
+    payload = response.json() if response.content else {}
+    return payload.get("data") if isinstance(payload, dict) else {}
+
+
+def create_domain_checkout(gym_id: int, domain_name: str, years: int = 1) -> dict:
+    with httpx.Client(timeout=20.0) as client:
+        response = client.post(
+            f"{BILLING_SERVICE_URL}/api/v1/domains/checkout",
+            headers={"Content-Type": "application/json"},
+            json={"gym_id": gym_id, "domain_name": domain_name, "years": years},
+        )
+    if response.status_code >= 400:
+        raise ValidationException(f"domain_checkout_failed_{response.status_code}")
+    payload = response.json() if response.content else {}
+    return payload.get("data") if isinstance(payload, dict) else {}
 
 
 def _normalize_currency(value: str | None) -> str:
@@ -139,13 +191,19 @@ def _upsert_whatsapp_phone_number(
     db.commit()
 
 
-def register_gym(db: Session, gym_data: GymCreate, owner_id: int) -> GymResponse:
+def register_gym(
+    db: Session,
+    gym_data: GymCreate,
+    owner_id: int,
+    owner_email: str | None = None,
+) -> GymResponse:
     """Register a new gym."""
+    effective_email = gym_data.email or (owner_email.strip() if owner_email else None)
     gym = Gym(
         name=gym_data.name,
         address=gym_data.address,
         phone=gym_data.phone,
-        email=gym_data.email,
+        email=effective_email,
         preferred_currency=_normalize_currency(gym_data.preferred_currency),
         owner_id=owner_id,
     )

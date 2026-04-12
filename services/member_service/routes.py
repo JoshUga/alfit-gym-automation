@@ -3,7 +3,7 @@
 import os
 import logging
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 from shared.database import get_db
 from shared.auth import get_current_user, UserClaims
@@ -162,9 +162,50 @@ def _fire_welcome_email(
         return {"status": "error", "reason": str(exc)}
 
 
+def _run_member_post_create_tasks(
+    gym_id: int,
+    member_id: int,
+    member_name: str,
+    member_phone: str,
+    member_email: str | None,
+    schedule: str | None,
+    training_days: list[str] | None,
+    target: str | None,
+    monthly_payment_amount: int | None,
+    auth_header: str | None,
+) -> None:
+    _fire_welcome_message(
+        gym_id=gym_id,
+        member_name=member_name,
+        member_phone=member_phone,
+        schedule=schedule,
+        training_days=training_days,
+        target=target,
+        monthly_payment_amount=monthly_payment_amount,
+        auth_header=auth_header,
+    )
+    _fire_generate_workout_plan(
+        member_id=member_id,
+        gym_id=gym_id,
+        member_name=member_name,
+        target=target,
+        training_days=training_days,
+        auth_header=auth_header,
+    )
+    _fire_welcome_email(
+        gym_id=gym_id,
+        member_name=member_name,
+        member_email=member_email,
+        training_days=training_days,
+        target=target,
+        monthly_payment_amount=monthly_payment_amount,
+    )
+
+
 @router.post("/members", response_model=APIResponse[MemberResponse])
 def add_member(
     request: Request,
+    background_tasks: BackgroundTasks,
     data: MemberCreate,
     current_user: UserClaims = Depends(get_current_user),
     db: Session = Depends(get_session),
@@ -173,60 +214,20 @@ def add_member(
     if "gym_staff" in current_user.roles:
         raise ForbiddenException("Trainer accounts cannot add members")
     result = service.add_member(db, data)
-    welcome_result = _fire_welcome_message(
+    background_tasks.add_task(
+        _run_member_post_create_tasks,
         gym_id=data.gym_id,
+        member_id=result.id,
         member_name=result.name,
         member_phone=result.phone_number,
+        member_email=result.email,
         schedule=result.schedule,
         training_days=result.training_days,
         target=result.target,
         monthly_payment_amount=result.monthly_payment_amount,
         auth_header=request.headers.get("Authorization"),
     )
-    workout_result = _fire_generate_workout_plan(
-        member_id=result.id,
-        gym_id=data.gym_id,
-        member_name=result.name,
-        target=result.target,
-        training_days=result.training_days,
-        auth_header=request.headers.get("Authorization"),
-    )
-    email_result = _fire_welcome_email(
-        gym_id=data.gym_id,
-        member_name=result.name,
-        member_email=result.email,
-        training_days=result.training_days,
-        target=result.target,
-        monthly_payment_amount=result.monthly_payment_amount,
-    )
-    welcome_status = str(welcome_result.get("status") or "unknown")
-    workout_status = str(workout_result.get("status") or "unknown")
-    email_status = str(email_result.get("status") or "unknown")
-
-    workout_message = "workout plan generated"
-    if workout_status == "skipped":
-        workout_message = f"workout generation skipped ({workout_result.get('reason', 'unknown')})"
-    elif workout_status != "generated":
-        workout_message = f"workout generation not completed ({workout_result.get('reason', workout_status)})"
-
-    email_message = "welcome email sent"
-    if email_status == "skipped":
-        email_message = f"welcome email skipped ({email_result.get('reason', 'unknown')})"
-    elif email_status != "sent":
-        email_message = f"welcome email not sent ({email_result.get('reason', email_status)})"
-
-    if welcome_status == "sent":
-        message = f"Member added, WhatsApp welcome sent, {email_message}, and {workout_message}"
-    elif welcome_status == "skipped":
-        message = (
-            "Member added, WhatsApp welcome skipped "
-            f"({welcome_result.get('reason', 'unknown')}), {email_message}, and {workout_message}"
-        )
-    else:
-        message = (
-            "Member added, WhatsApp welcome not sent "
-            f"({welcome_result.get('reason', welcome_status)}), {email_message}, and {workout_message}"
-        )
+    message = "Member added. Welcome messages and workout generation queued in background."
     return APIResponse(data=result, message=message)
 
 

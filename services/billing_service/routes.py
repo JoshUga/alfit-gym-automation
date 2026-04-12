@@ -1,6 +1,6 @@
 """Billing Service API routes."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from shared.database import get_db
 from shared.auth import get_current_user, require_roles, UserClaims
@@ -11,6 +11,9 @@ from services.billing_service.schemas import (
     SubscriptionCreate,
     SubscriptionResponse,
     PaymentResponse,
+    DomainCheckoutCreate,
+    DomainCheckoutResponse,
+    DomainPaymentStatusResponse,
 )
 from services.billing_service import service
 
@@ -82,3 +85,36 @@ def get_payment_history(
     """Get payment history for a gym."""
     result = service.get_payment_history(db, gym_id)
     return APIResponse(data=result)
+
+
+@router.post("/domains/checkout", response_model=APIResponse[DomainCheckoutResponse])
+def create_domain_checkout(
+    data: DomainCheckoutCreate,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Create checkout link for domain purchase via PayGate."""
+    result = service.create_domain_checkout(db, data)
+    return APIResponse(data=result, message="Domain checkout created")
+
+
+@router.get("/domains/{reference}/status", response_model=APIResponse[DomainPaymentStatusResponse])
+def get_domain_checkout_status(
+    reference: str,
+    current_user: UserClaims = Depends(get_current_user),
+    db: Session = Depends(get_session),
+):
+    """Get domain checkout payment status."""
+    result = service.get_domain_payment_status(db, reference)
+    return APIResponse(data=result)
+
+
+@router.get("/domains/paygate/callback", response_model=APIResponse[DomainPaymentStatusResponse])
+def paygate_callback(
+    request: Request,
+    db: Session = Depends(get_session),
+):
+    """PayGate callback endpoint to mark domain order as paid."""
+    payload = dict(request.query_params)
+    result = service.handle_paygate_callback(db, payload)
+    return APIResponse(data=result, message="Callback processed")
