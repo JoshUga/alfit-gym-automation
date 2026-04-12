@@ -10,6 +10,7 @@ from shared.auth import create_access_token
 from services.gym_service.main import app
 from services.gym_service.routes import get_session
 from services.gym_service.models import Gym
+from services.gym_service.schemas import GymCreate
 from services.gym_service import service as gym_service
 
 
@@ -42,6 +43,10 @@ def auth_headers():
 
 
 class TestGymRegistration:
+    def test_gym_create_schema_allows_missing_email(self):
+        payload = GymCreate(name="No Email Gym")
+        assert payload.email is None
+
     def test_register_gym(self, client, auth_headers):
         response = client.post("/api/v1/gyms/register", json={
             "name": "Test Gym",

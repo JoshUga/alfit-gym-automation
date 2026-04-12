@@ -11,6 +11,7 @@ from shared.auth import create_access_token
 from services.ai_service.main import app
 from services.ai_service.routes import get_session
 from services.ai_service.models import AIConfig, AIProvider
+from services.ai_service import service as ai_service
 
 
 @pytest.fixture
@@ -42,6 +43,52 @@ def auth_headers():
 
 
 class TestAIConfig:
+    def test_startup_runtime_check_non_ollama_missing_key(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "openai")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        result = ai_service.run_startup_runtime_checks()
+        assert result["provider"] == "openai"
+        assert result["status"] == "degraded"
+
+    def test_startup_runtime_check_ollama_uses_fallback(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "ollama")
+        monkeypatch.setenv("AI_MODEL", "missing-model")
+        monkeypatch.setenv("AI_FALLBACK_MODEL", "fallback-model")
+
+        class _FakeResp:
+            status_code = 200
+            content = b"{}"
+
+            @staticmethod
+            def json():
+                return {"models": [{"name": "fallback-model"}]}
+
+        class _FakeClient:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def get(self, url):
+                return _FakeResp()
+
+        monkeypatch.setattr(ai_service.httpx, "Client", _FakeClient)
+        called = {}
+
+        def _fake_generate(model_name, base_prompt, incoming_message):
+            called["model_name"] = model_name
+            return "ok"
+
+        monkeypatch.setattr(ai_service, "_generate_with_ollama", _fake_generate)
+
+        result = ai_service.run_startup_runtime_checks()
+        assert result["status"] == "healthy"
+        assert called["model_name"] == "fallback-model"
+
     def test_create_config_disabled(self, client, auth_headers):
         response = client.post("/api/v1/ai/configs", json={
             "gym_id": 1,

@@ -10,6 +10,7 @@ from shared.auth import create_access_token
 from services.admin_service.main import app
 from services.admin_service.routes import get_session
 from services.admin_service.models import AuditLog
+from services.admin_service import service as admin_service
 
 
 @pytest.fixture
@@ -51,6 +52,33 @@ class TestAuditLogs:
 
 
 class TestSystemHealth:
+    def test_run_system_startup_test_collects_unhealthy_services(self, monkeypatch):
+        class _FakeResp:
+            status_code = 503
+            content = b'{"status":"down"}'
+
+            @staticmethod
+            def json():
+                return {"status": "down"}
+
+        class _FakeClient:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def get(self, url):
+                return _FakeResp()
+
+        monkeypatch.setattr(admin_service.httpx, "Client", _FakeClient)
+        report = admin_service.run_system_startup_test()
+        assert report.services
+        assert any(item.status == "unhealthy" for item in report.services)
+
     def test_get_system_health(self, client, auth_headers):
         response = client.get("/api/v1/admin/health-status", headers=auth_headers)
         assert response.status_code == 200

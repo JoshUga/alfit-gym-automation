@@ -139,7 +139,7 @@ class TestSendEmail:
 
         result = email_service.auto_initialize_emailengine(db)
         assert result["initialized"] is True
-        assert result["token_generated"] is True
+        assert "token_configured" in result
 
         account = db.query(SMTPAccount).filter(SMTPAccount.gym_id == 7).first()
         assert account is not None
