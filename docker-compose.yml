@@ -89,8 +89,8 @@ services:
       EVOLUTION_API_URL: http://evolution-api:8080
       EVOLUTION_API_GLOBAL_KEY: ${EVOLUTION_API_GLOBAL_KEY:-change-me}
       AI_PROVIDER: ${AI_PROVIDER:-ollama}
-      AI_MODEL: ${AI_MODEL:-qwen2.5:0.5b}
-      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-tinyllama}
+      AI_MODEL: ${AI_MODEL:-phi4-mini-reasoning}
+      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-phi4-mini}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       EMAIL_SERVICE_URL: http://email-service:8000
     depends_on:
@@ -204,8 +204,8 @@ services:
       REDIS_HOST: redis
       JWT_SECRET_KEY: your-production-secret-key
       AI_PROVIDER: ${AI_PROVIDER:-ollama}
-      AI_MODEL: ${AI_MODEL:-qwen2.5:0.5b}
-      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-tinyllama}
+      AI_MODEL: ${AI_MODEL:-phi4-mini-reasoning}
+      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-phi4-mini}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       AI_BASE_PROMPT: ${AI_BASE_PROMPT:-You are a helpful gym assistant. Keep responses concise and practical.}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -234,10 +234,10 @@ services:
       - ollama
     environment:
       OLLAMA_HOST: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      AI_MODEL: ${AI_MODEL:-qwen2.5:0.5b}
-      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-tinyllama}
+      AI_MODEL: ${AI_MODEL:-phi4-mini-reasoning}
+      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-phi4-mini}
     entrypoint: ["/bin/sh", "-lc"]
-    command: ["sleep 5 && (ollama pull ${AI_MODEL:-qwen2.5:0.5b} || ollama pull ${AI_FALLBACK_MODEL:-tinyllama} || ollama pull tinyllama)"]
+    command: ["sleep 5 && (ollama pull ${AI_MODEL:-phi4-mini-reasoning} || ollama pull ${AI_FALLBACK_MODEL:-phi4-mini} || ollama pull phi4-mini)"]
     networks:
       - alfit-network
 

@@ -1,6 +1,6 @@
 """Analytics Service database models."""
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Enum as SQLEnum, Boolean
 from sqlalchemy.sql import func
 from shared.database import Base
 import enum
@@ -9,6 +9,21 @@ import enum
 class MessageType(str, enum.Enum):
     INCOMING = "incoming"
     OUTGOING = "outgoing"
+
+
+class Member(Base):
+    __tablename__ = "members"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    gym_id = Column(Integer, nullable=False, index=True)
+
+
+class GymPhoneNumber(Base):
+    __tablename__ = "gym_phone_numbers"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    gym_id = Column(Integer, nullable=False, index=True)
+    is_active = Column(Boolean, default=True)
 
 
 class MessageLog(Base):
