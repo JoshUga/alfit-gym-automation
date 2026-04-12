@@ -35,7 +35,7 @@ def get_session():
     yield from get_db()
 
 
-def _ensure_staff_member_access(current_user: UserClaims, member_id: int, db: Session) -> None:
+def _validate_staff_member_assignment(current_user: UserClaims, member_id: int, db: Session) -> None:
     if "gym_staff" not in current_user.roles:
         return
     member = service.get_member(db, member_id)
@@ -265,7 +265,7 @@ def update_member(
     db: Session = Depends(get_session),
 ):
     """Update a member."""
-    _ensure_staff_member_access(current_user, member_id, db)
+    _validate_staff_member_assignment(current_user, member_id, db)
     result = service.update_member(db, member_id, data)
     return APIResponse(data=result, message="Member updated successfully")
 
@@ -337,7 +337,7 @@ def list_member_payments(
     db: Session = Depends(get_session),
 ):
     """List all payments for a member."""
-    _ensure_staff_member_access(current_user, member_id, db)
+    _validate_staff_member_assignment(current_user, member_id, db)
     result = service.list_member_payments(db, member_id)
     return APIResponse(data=result)
 
@@ -350,7 +350,7 @@ def create_member_payment(
     db: Session = Depends(get_session),
 ):
     """Create a payment for a member."""
-    _ensure_staff_member_access(current_user, member_id, db)
+    _validate_staff_member_assignment(current_user, member_id, db)
     result = service.create_member_payment(db, member_id, data)
     return APIResponse(data=result, message="Payment recorded successfully")
 

@@ -78,11 +78,11 @@ interface WorkoutWeekView {
 
 function escapeXmlValue(value: string): string {
   return value
-    .split('&').join('&amp;')
-    .split('<').join('&lt;')
-    .split('>').join('&gt;')
-    .split('"').join('&quot;')
-    .split("'").join('&apos;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 function workoutWeeksToXml(weeks: WorkoutWeekView[]): string {

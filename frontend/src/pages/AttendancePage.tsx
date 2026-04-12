@@ -194,8 +194,8 @@ export default function AttendancePage() {
                   }`}>
                     {status || 'not marked'}
                   </span>
-                  <button type="button" className="btn-secondary text-xs" disabled={saving} onClick={() => void handleMark(member.id, 'present')}>P</button>
-                  <button type="button" className="btn-secondary text-xs" disabled={saving} onClick={() => void handleMark(member.id, 'absent')}>A</button>
+                  <button type="button" aria-label={`Mark ${member.name} as present`} className="btn-secondary text-xs" disabled={saving} onClick={() => void handleMark(member.id, 'present')}>Present</button>
+                  <button type="button" aria-label={`Mark ${member.name} as absent`} className="btn-secondary text-xs" disabled={saving} onClick={() => void handleMark(member.id, 'absent')}>Absent</button>
                 </div>
               );
             })

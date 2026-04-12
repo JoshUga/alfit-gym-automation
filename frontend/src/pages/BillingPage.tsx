@@ -91,7 +91,7 @@ export default function BillingPage() {
     const paid = byMemberPaidCompleted.get(member.id) || 0;
     return due > 0 && paid < due;
   });
-  const upcoming = members.filter((member) => {
+  const unpaidThisMonth = members.filter((member) => {
     const due = member.monthly_payment_amount || 0;
     const paid = byMemberPaidCompleted.get(member.id) || 0;
     return due > 0 && paid === 0;
@@ -127,8 +127,8 @@ export default function BillingPage() {
           <p className="mt-2 text-2xl font-semibold">{arrears.length}</p>
         </div>
         <div className={`rounded-2xl border p-4 ${cardClass}`}>
-          <p className="flex items-center gap-2 text-sm font-semibold text-cyan-500"><Clock3 size={16} /> Upcoming</p>
-          <p className="mt-2 text-2xl font-semibold">{upcoming.length}</p>
+          <p className="flex items-center gap-2 text-sm font-semibold text-cyan-500"><Clock3 size={16} /> Unpaid This Month</p>
+          <p className="mt-2 text-2xl font-semibold">{unpaidThisMonth.length}</p>
         </div>
         <div className={`rounded-2xl border p-4 ${cardClass}`}>
           <p className="flex items-center gap-2 text-sm font-semibold text-emerald-500"><CheckCircle2 size={16} /> Settled</p>

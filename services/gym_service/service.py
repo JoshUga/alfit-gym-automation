@@ -34,6 +34,31 @@ EVOLUTION_UPSERT_WEBHOOK_URL = os.getenv(
     "http://message-service:8000/api/v1/messages/evolution-upsert",
 ).rstrip("/")
 logger = logging.getLogger(__name__)
+NUMBERED_OPTIONS_PATTERN = re.compile(r"\b1[\).].*\b2[\).]")
+MEMBER_WELCOME_BANNED_FRAGMENTS = [
+    "here is",
+    "example",
+    "as an ai",
+    "i can",
+    "i cannot",
+    "option 1",
+    "option 2",
+    "version 1",
+    "version 2",
+]
+ONBOARDING_WELCOME_BANNED_FRAGMENTS = [
+    "here is a sample",
+    "sample whatsapp",
+    "example message",
+    "whatsapp message in english",
+    "as an ai",
+    "i can",
+    "i cannot",
+    "option 1",
+    "option 2",
+    "version 1",
+    "version 2",
+]
 
 
 def _normalize_currency(value: str | None) -> str:
@@ -76,6 +101,7 @@ def _upsert_whatsapp_phone_number(
 ) -> None:
     normalized_phone = _normalize_phone_number(phone_number)
     if not normalized_phone:
+        logger.debug("Skipping WhatsApp phone upsert for gym %s because number is empty", gym_id)
         return
 
     phone = (
@@ -584,22 +610,11 @@ def _generate_ai_member_welcome_copy(
             return None
 
         lower = cleaned.lower()
-        banned_fragments = [
-            "here is",
-            "example",
-            "as an ai",
-            "i can",
-            "i cannot",
-            "option 1",
-            "option 2",
-            "version 1",
-            "version 2",
-        ]
-        if any(fragment in lower for fragment in banned_fragments):
+        if any(fragment in lower for fragment in MEMBER_WELCOME_BANNED_FRAGMENTS):
             return None
         if cleaned.startswith("-") or cleaned.startswith("*"):
             return None
-        if re.search(r"\b1[\).].*\b2[\).]", lower):
+        if NUMBERED_OPTIONS_PATTERN.search(lower):
             return None
         if len(cleaned.split()) > 85:
             return None
@@ -783,24 +798,11 @@ def _generate_ai_onboarding_copy(gym_name: str, owner_name: str | None) -> dict:
             return None
 
         lower = cleaned.lower()
-        banned_fragments = [
-            "here is a sample",
-            "sample whatsapp",
-            "example message",
-            "whatsapp message in english",
-            "as an ai",
-            "i can",
-            "i cannot",
-            "option 1",
-            "option 2",
-            "version 1",
-            "version 2",
-        ]
-        if any(fragment in lower for fragment in banned_fragments):
+        if any(fragment in lower for fragment in ONBOARDING_WELCOME_BANNED_FRAGMENTS):
             return None
         if cleaned.startswith("-") or cleaned.startswith("*") or "\n-" in cleaned or "\n*" in cleaned:
             return None
-        if re.search(r"\b1[\).].*\b2[\).]", lower):
+        if NUMBERED_OPTIONS_PATTERN.search(lower):
             return None
         if len(cleaned.split()) > 70:
             return None
