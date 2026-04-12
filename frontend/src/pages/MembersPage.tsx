@@ -4,6 +4,7 @@ import DataTable from '../components/DataTable';
 import Drawer from '../components/Drawer';
 import { gymService, memberService, attendanceService, workoutService } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
+import { useThemeStore } from '../stores/themeStore';
 
 interface Member {
   id: number;
@@ -73,6 +74,37 @@ interface WorkoutWeekView {
   number: string;
   focus: string;
   sessions: WorkoutSessionView[];
+}
+
+function escapeXmlValue(value: string): string {
+  return value
+    .split('&').join('&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;')
+    .split('"').join('&quot;')
+    .split("'").join('&apos;');
+}
+
+function workoutWeeksToXml(weeks: WorkoutWeekView[]): string {
+  const weekXml = weeks.map((week) => {
+    const sessionsXml = week.sessions.map((session) => (
+      `    <session>\n` +
+      `      <day>${escapeXmlValue(session.day || '')}</day>\n` +
+      `      <warmup>${escapeXmlValue(session.warmup || '')}</warmup>\n` +
+      `      <main>${escapeXmlValue(session.main || '')}</main>\n` +
+      `      <conditioning>${escapeXmlValue(session.conditioning || '')}</conditioning>\n` +
+      `    </session>`
+    )).join('\n');
+
+    return (
+      `  <week number="${escapeXmlValue(week.number || '')}">\n` +
+      `    <focus>${escapeXmlValue(week.focus || '')}</focus>\n` +
+      `${sessionsXml}\n` +
+      `  </week>`
+    );
+  }).join('\n');
+
+  return `<weekly_plan>\n${weekXml}\n</weekly_plan>`;
 }
 
 type AttendanceCellStatus = 'present' | 'absent' | 'planned' | 'missed' | 'off';
@@ -280,6 +312,7 @@ function MemberForm({
 
 export default function MembersPage() {
   const user = useAuthStore((state) => state.user);
+  const isDark = useThemeStore((state) => state.isDark);
   const isTrainer = user?.role === 'gym_staff';
   const [members, setMembers] = useState<Member[]>([]);
   const [gymId, setGymId] = useState<number | null>(() => {
@@ -307,6 +340,7 @@ export default function MembersPage() {
   const [savingAttendanceDate, setSavingAttendanceDate] = useState<string | null>(null);
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null);
   const [workoutXmlDraft, setWorkoutXmlDraft] = useState('');
+  const [workoutWeekDraft, setWorkoutWeekDraft] = useState<WorkoutWeekView[]>([]);
   const [savingWorkoutPlan, setSavingWorkoutPlan] = useState(false);
   const [loadingMemberDetail, setLoadingMemberDetail] = useState(false);
   const [generatingWorkoutPlan, setGeneratingWorkoutPlan] = useState(false);
@@ -583,7 +617,9 @@ export default function MembersPage() {
       });
       setMonthAttendance(monthlyMap);
       setWorkoutPlan(workoutRes.data.data || null);
-      setWorkoutXmlDraft(workoutRes.data.data?.plan_text || '');
+      const initialXml = workoutRes.data.data?.plan_text || '';
+      setWorkoutXmlDraft(initialXml);
+      setWorkoutWeekDraft(parseWorkoutPlanXml(initialXml));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to load member details');
@@ -592,6 +628,7 @@ export default function MembersPage() {
       setMonthAttendance({});
       setWorkoutPlan(null);
       setWorkoutXmlDraft('');
+      setWorkoutWeekDraft([]);
     } finally {
       setLoadingMemberDetail(false);
     }
@@ -613,7 +650,9 @@ export default function MembersPage() {
         training_days: resolveTrainingDays(selectedMember),
       });
       setWorkoutPlan(res.data.data);
-      setWorkoutXmlDraft(res.data.data.plan_text || '');
+      const generatedXml = res.data.data.plan_text || '';
+      setWorkoutXmlDraft(generatedXml);
+      setWorkoutWeekDraft(parseWorkoutPlanXml(generatedXml));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to generate workout plan');
@@ -658,8 +697,9 @@ export default function MembersPage() {
       setError('Generate a workout plan first before editing');
       return;
     }
-    if (!workoutXmlDraft.trim()) {
-      setError('Workout XML cannot be empty');
+    const serializedXml = workoutWeekDraft.length > 0 ? workoutWeeksToXml(workoutWeekDraft) : workoutXmlDraft.trim();
+    if (!serializedXml.trim()) {
+      setError('Workout plan cannot be empty');
       return;
     }
 
@@ -670,10 +710,12 @@ export default function MembersPage() {
         member_name: selectedMember.name,
         target: selectedMember.target,
         training_days: resolveTrainingDays(selectedMember),
-        plan_text: workoutXmlDraft,
+        plan_text: serializedXml,
       });
       setWorkoutPlan(res.data.data);
-      setWorkoutXmlDraft(res.data.data.plan_text || workoutXmlDraft);
+      const savedXml = res.data.data.plan_text || serializedXml;
+      setWorkoutXmlDraft(savedXml);
+      setWorkoutWeekDraft(parseWorkoutPlanXml(savedXml));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg || 'Unable to update workout plan');
@@ -686,7 +728,7 @@ export default function MembersPage() {
   const calendarDates = listMonthDates(calendarMonth);
   const leadingEmptyCells = Array.from({ length: monthLeadingOffset(calendarMonth) });
   const todayIso = isoDate(new Date());
-  const parsedWorkoutWeeks = parseWorkoutPlanXml(workoutXmlDraft);
+  const parsedWorkoutWeeks = workoutWeekDraft;
 
   const attendanceStatusForDate = (dateIso: string): AttendanceCellStatus => {
     const memberCreatedAt = selectedMember?.created_at ? isoDate(new Date(selectedMember.created_at)) : null;
@@ -714,6 +756,29 @@ export default function MembersPage() {
     planned: 'border-cyan-500/70 bg-cyan-500/15 text-cyan-200',
     missed: 'border-amber-500/70 bg-amber-500/15 text-amber-200',
     off: 'border-slate-700 bg-slate-900/40 text-slate-400',
+  };
+
+  const updateWeekField = (weekIdx: number, field: 'number' | 'focus', value: string) => {
+    setWorkoutWeekDraft((prev) => prev.map((week, idx) => (
+      idx === weekIdx ? { ...week, [field]: value } : week
+    )));
+  };
+
+  const updateSessionField = (
+    weekIdx: number,
+    sessionIdx: number,
+    field: keyof WorkoutSessionView,
+    value: string,
+  ) => {
+    setWorkoutWeekDraft((prev) => prev.map((week, idx) => {
+      if (idx !== weekIdx) return week;
+      return {
+        ...week,
+        sessions: week.sessions.map((session, sIdx) => (
+          sIdx === sessionIdx ? { ...session, [field]: value } : session
+        )),
+      };
+    }));
   };
 
   const columns = [
@@ -803,7 +868,7 @@ export default function MembersPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-semibold text-white">Members</h1>
+        <h1 className={`text-3xl font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Members</h1>
         <button
           onClick={() => setIsAddDrawerOpen(true)}
           className="inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50"
@@ -814,7 +879,11 @@ export default function MembersPage() {
           Add Member
         </button>
       </div>
-      {error && <div className="mb-4 rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+      {error && (
+        <div className={`mb-4 rounded-xl border p-3 text-sm ${isDark ? 'border-red-500/35 bg-red-500/10 text-red-200' : 'border-red-300 bg-red-50 text-red-700'}`}>
+          {error}
+        </div>
+      )}
       <div>
         {loading ? (
           <p className="text-sm text-slate-400">Loading members...</p>
@@ -888,10 +957,11 @@ export default function MembersPage() {
           setSelectedMember(null);
           setAttendanceSummary(null);
           setRecentAttendance([]);
-          setMonthAttendance({});
-          setWorkoutXmlDraft('');
-          setWorkoutPlan(null);
-        }}
+            setMonthAttendance({});
+            setWorkoutXmlDraft('');
+            setWorkoutPlan(null);
+            setWorkoutWeekDraft([]);
+          }}
         title={selectedMember ? `Member Details - ${selectedMember.name}` : 'Member Details'}
       >
         {loadingMemberDetail ? (
@@ -1023,33 +1093,54 @@ export default function MembersPage() {
                     Source: {workoutPlan.provider || 'n/a'}
                     {workoutPlan.model ? ` · ${workoutPlan.model}` : ''}
                   </p>
-                  <textarea
-                    rows={14}
-                    className="input-field font-mono text-xs"
-                    value={workoutXmlDraft}
-                    onChange={(e) => setWorkoutXmlDraft(e.target.value)}
-                    placeholder="<workout_plan>...</workout_plan>"
-                    readOnly={isTrainer}
-                  />
-                  {isTrainer && (
-                    <p className="mt-2 text-xs text-slate-400">
-                      Workout XML is read-only for trainer accounts.
-                    </p>
-                  )}
                   {parsedWorkoutWeeks.length > 0 ? (
                     <div className="mt-4 space-y-3">
                       <p className="text-xs uppercase tracking-wide text-slate-500">Week to Week Plan</p>
-                      {parsedWorkoutWeeks.map((week) => (
+                      {parsedWorkoutWeeks.map((week, weekIdx) => (
                         <div key={`week-${week.number}`} className="border border-slate-800 bg-slate-950/60 p-3">
-                          <p className="text-sm font-semibold text-cyan-200">Week {week.number}</p>
-                          <p className="mt-1 text-xs text-slate-400">Focus: {week.focus}</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr]">
+                            <input
+                              className="input-field text-xs"
+                              value={week.number}
+                              onChange={(e) => updateWeekField(weekIdx, 'number', e.target.value)}
+                              readOnly={isTrainer}
+                            />
+                            <input
+                              className="input-field text-xs"
+                              value={week.focus}
+                              onChange={(e) => updateWeekField(weekIdx, 'focus', e.target.value)}
+                              readOnly={isTrainer}
+                            />
+                          </div>
                           <div className="mt-2 space-y-2">
                             {week.sessions.map((session, idx) => (
                               <div key={`${week.number}-${session.day}-${idx}`} className="border border-slate-800/80 p-2">
-                                <p className="text-xs font-semibold text-slate-200">{session.day}</p>
-                                <p className="text-xs text-slate-400">Warmup: {session.warmup || 'N/A'}</p>
-                                <p className="text-xs text-slate-400">Main: {session.main || 'N/A'}</p>
-                                <p className="text-xs text-slate-400">Conditioning: {session.conditioning || 'N/A'}</p>
+                                <div className="grid grid-cols-1 gap-2">
+                                  <input
+                                    className="input-field text-xs"
+                                    value={session.day}
+                                    onChange={(e) => updateSessionField(weekIdx, idx, 'day', e.target.value)}
+                                    readOnly={isTrainer}
+                                  />
+                                  <input
+                                    className="input-field text-xs"
+                                    value={session.warmup}
+                                    onChange={(e) => updateSessionField(weekIdx, idx, 'warmup', e.target.value)}
+                                    readOnly={isTrainer}
+                                  />
+                                  <input
+                                    className="input-field text-xs"
+                                    value={session.main}
+                                    onChange={(e) => updateSessionField(weekIdx, idx, 'main', e.target.value)}
+                                    readOnly={isTrainer}
+                                  />
+                                  <input
+                                    className="input-field text-xs"
+                                    value={session.conditioning}
+                                    onChange={(e) => updateSessionField(weekIdx, idx, 'conditioning', e.target.value)}
+                                    readOnly={isTrainer}
+                                  />
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -1057,7 +1148,7 @@ export default function MembersPage() {
                       ))}
                     </div>
                   ) : (
-                    <p className="mt-2 text-xs text-amber-300">XML preview unavailable. Keep valid XML to render week-by-week cards.</p>
+                    <p className="mt-2 text-xs text-amber-300">Plan structure unavailable. Regenerate to edit in card format.</p>
                   )}
                 </>
               ) : (

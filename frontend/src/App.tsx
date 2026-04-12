@@ -13,6 +13,7 @@ import SettingsPage from './pages/SettingsPage';
 import MessagesPage from './pages/MessagesPage';
 import AttendancePage from './pages/AttendancePage';
 import StaffPage from './pages/StaffPage';
+import BillingPage from './pages/BillingPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
 import DataRemovalPage from './pages/DataRemovalPage';
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="staff" element={<StaffPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="messages" element={<MessagesPage />} />
+        <Route path="payments" element={<BillingPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

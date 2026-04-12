@@ -37,9 +37,9 @@ const searchItems: SearchItem[] = [
     keywords: ['chat', 'history', 'whatsapp', 'messages'],
   },
   {
-    label: 'Billing',
-    description: 'Plan details and payment history',
-    path: '/app/billing',
+    label: 'Payments',
+    description: 'Receipts, arrears, upcoming dues, and payment trends',
+    path: '/app/payments',
     keywords: ['subscription', 'invoice', 'payments', 'billing'],
   },
   {

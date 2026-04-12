@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { analyticsService, attendanceService, gymService, memberService } from '../services/api';
 import { useThemeStore } from '../stores/themeStore';
+import { useAuthStore } from '../stores/authStore';
 
 type GymSummary = {
   id: number;
@@ -104,6 +105,7 @@ function formatRelativeTime(value?: string | null) {
 
 export default function DashboardPage() {
   const isDark = useThemeStore((state) => state.isDark);
+  const user = useAuthStore((state) => state.user);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [gym, setGym] = useState<GymSummary | null>(null);
@@ -198,6 +200,13 @@ export default function DashboardPage() {
   const deliveryRate = Math.max(kpis?.notification_delivery_rate ?? 0, deliveryRateLive);
 
   const todayKey = localDateKey(new Date());
+  const scopedAttendance = useMemo(() => {
+    if (user?.role !== 'gym_staff') {
+      return attendanceRecords;
+    }
+    const visibleMemberIds = new Set(members.map((member) => member.id));
+    return attendanceRecords.filter((record) => visibleMemberIds.has(record.member_id));
+  }, [attendanceRecords, members, user?.role]);
   const weeklyDates = useMemo(() => {
     return Array.from({ length: 7 }, (_, index) => {
       const date = localDateDaysAgo(6 - index);
@@ -208,14 +217,17 @@ export default function DashboardPage() {
   const weeklyAttendance = useMemo(() => {
     return weeklyDates.map((dateKey) => {
       const dayRecords = attendanceRecords.filter((record) => record.attendance_date === dateKey);
+      const dayScoped = user?.role === 'gym_staff'
+        ? dayRecords.filter((record) => members.some((member) => member.id === record.member_id))
+        : dayRecords;
       return {
         dateKey,
         label: new Date(`${dateKey}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short' }),
-        present: dayRecords.filter((record) => record.status === 'present').length,
-        absent: dayRecords.filter((record) => record.status === 'absent').length,
+        present: dayScoped.filter((record) => record.status === 'present').length,
+        absent: dayScoped.filter((record) => record.status === 'absent').length,
       };
     });
-  }, [attendanceRecords, weeklyDates]);
+  }, [attendanceRecords, members, user?.role, weeklyDates]);
 
   const weeklyMessages = useMemo(() => {
     const volumeMap = new Map<string, { incoming: number; outgoing: number }>();
@@ -241,7 +253,7 @@ export default function DashboardPage() {
     });
   }, [messageLogs, weeklyDates]);
 
-  const todaysAttendance = attendanceRecords.filter((record) => record.attendance_date === todayKey);
+  const todaysAttendance = scopedAttendance.filter((record) => record.attendance_date === todayKey);
   const todayPresent = todaysAttendance.filter((record) => record.status === 'present').length;
   const todayAbsent = todaysAttendance.filter((record) => record.status === 'absent').length;
   const weekPresent = weeklyAttendance.reduce((total, item) => total + item.present, 0);

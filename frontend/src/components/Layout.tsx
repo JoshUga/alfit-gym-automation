@@ -17,6 +17,7 @@ import {
   Search,
   Sparkles,
   UserCog,
+  CreditCard,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -27,6 +28,7 @@ const navItems = [
   { path: '/app/staff', label: 'Staff', icon: UserCog, roles: ['gym_owner'] },
   { path: '/app/notifications', label: 'Notifications', icon: Bell, roles: ['gym_owner'] },
   { path: '/app/messages', label: 'Messages', icon: MessageSquare, roles: ['gym_owner'] },
+  { path: '/app/payments', label: 'Payments', icon: CreditCard, roles: ['gym_owner', 'gym_staff'] },
   { path: '/app/settings', label: 'Settings', icon: Settings, roles: ['gym_owner'] },
 ];
 
@@ -65,6 +67,7 @@ export default function Layout() {
     if (location.pathname.startsWith('/app/staff')) return 'Staff';
     if (location.pathname.startsWith('/app/notifications')) return 'Notifications';
     if (location.pathname.startsWith('/app/messages')) return 'Messages';
+    if (location.pathname.startsWith('/app/payments')) return 'Payments';
     if (location.pathname.startsWith('/app/settings')) return 'Settings';
     return 'Dashboard';
   }, [location.pathname, visibleNavItems]);
@@ -81,10 +84,9 @@ export default function Layout() {
         }`}
       >
         <div className={`flex h-16 items-center justify-between border-b px-6 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-          <Link to="/" className="text-xl font-semibold tracking-[0.2em] text-cyan-500">
-            <span>ALFIT</span>
-            <span className="art-subtext text-cyan-300/90">ALFIT</span>
-          </Link>
+            <Link to="/" className="text-xl font-semibold tracking-[0.2em] text-cyan-500">
+              <span>ALFIT</span>
+            </Link>
           <Sparkles size={16} className={isDark ? 'text-cyan-300/80' : 'text-cyan-500/80'} />
         </div>
 
@@ -115,12 +117,7 @@ export default function Layout() {
               }`}
             >
               <Icon size={20} />
-              <span>
-                <span>{label}</span>
-                <span className={`art-subtext ${location.pathname === path ? 'text-slate-900/85' : isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                  {label}
-                </span>
-              </span>
+              <span>{label}</span>
             </Link>
           ))}
 
@@ -133,10 +130,7 @@ export default function Layout() {
             }`}
           >
             <LogOut size={18} />
-            <span>
-              <span>Logout</span>
-              <span className={`art-subtext ${isDark ? 'text-red-300/70' : 'text-red-500/70'}`}>Logout</span>
-            </span>
+            <span>Logout</span>
           </button>
         </nav>
       </aside>

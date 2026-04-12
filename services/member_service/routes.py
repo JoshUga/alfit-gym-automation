@@ -35,6 +35,14 @@ def get_session():
     yield from get_db()
 
 
+def _ensure_staff_member_access(current_user: UserClaims, member_id: int, db: Session) -> None:
+    if "gym_staff" not in current_user.roles:
+        return
+    member = service.get_member(db, member_id)
+    if current_user.user_id not in member.trainer_user_ids:
+        raise NotFoundException("Member", member_id)
+
+
 def _fire_welcome_message(
     gym_id: int,
     member_name: str,
@@ -162,6 +170,8 @@ def add_member(
     db: Session = Depends(get_session),
 ):
     """Add a new member."""
+    if "gym_staff" in current_user.roles:
+        raise ForbiddenException("Trainer accounts cannot add members")
     result = service.add_member(db, data)
     welcome_result = _fire_welcome_message(
         gym_id=data.gym_id,
@@ -255,6 +265,7 @@ def update_member(
     db: Session = Depends(get_session),
 ):
     """Update a member."""
+    _ensure_staff_member_access(current_user, member_id, db)
     result = service.update_member(db, member_id, data)
     return APIResponse(data=result, message="Member updated successfully")
 
@@ -266,6 +277,8 @@ def delete_member(
     db: Session = Depends(get_session),
 ):
     """Soft-delete a member."""
+    if "gym_staff" in current_user.roles:
+        raise ForbiddenException("Trainer accounts cannot delete members")
     result = service.delete_member(db, member_id)
     return APIResponse(message=result["message"])
 
@@ -324,6 +337,7 @@ def list_member_payments(
     db: Session = Depends(get_session),
 ):
     """List all payments for a member."""
+    _ensure_staff_member_access(current_user, member_id, db)
     result = service.list_member_payments(db, member_id)
     return APIResponse(data=result)
 
@@ -336,6 +350,7 @@ def create_member_payment(
     db: Session = Depends(get_session),
 ):
     """Create a payment for a member."""
+    _ensure_staff_member_access(current_user, member_id, db)
     result = service.create_member_payment(db, member_id, data)
     return APIResponse(data=result, message="Payment recorded successfully")
 

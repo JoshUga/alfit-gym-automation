@@ -266,10 +266,12 @@ def send_email(db: Session, data: SendEmailRequest) -> EmailLogResponse:
     account = _pick_next_smtp_account(db, data.gym_id)
     logger.info("Sending email to %s with template %s", data.recipient, data.template_name)
 
-    status = EmailStatus.SENT
+    status = EmailStatus.FAILED
     provider = "smtp-unconfigured"
     try:
         provider = _send_via_emailengine(account, data)
+        if provider == "emailengine":
+            status = EmailStatus.SENT
     except Exception as exc:
         logger.warning("Email send failed for %s: %s", data.recipient, exc)
         status = EmailStatus.FAILED
